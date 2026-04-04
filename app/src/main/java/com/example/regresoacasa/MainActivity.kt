@@ -19,15 +19,15 @@ import com.example.regresoacasa.ui.screens.MainScreen
 import com.example.regresoacasa.ui.screens.NavigationScreen
 import com.example.regresoacasa.ui.screens.SearchScreen
 import com.example.regresoacasa.ui.theme.RegresoACasaTheme
-import com.example.regresoacasa.ui.viewmodel.MainViewModel
-import com.example.regresoacasa.ui.viewmodel.Pantalla
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
+import com.example.regresoacasa.ui.state.Pantalla
 
 class MainActivity : ComponentActivity() {
 
     private val appModule by lazy { AppModule.getInstance(this) }
     
-    private val viewModel: MainViewModel by viewModels {
-        MainViewModel.Factory(appModule)
+    private val viewModel: NavigationViewModel by viewModels {
+        NavigationViewModel.Factory(appModule)
     }
 
     private val locationPermissionRequest = registerForActivityResult(
@@ -35,10 +35,10 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         when {
             permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) -> {
-                viewModel.obtenerUbicacion()
+                viewModel.obtenerUbicacionUnica()
             }
             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {
-                viewModel.obtenerUbicacion()
+                viewModel.obtenerUbicacionUnica()
             }
         }
     }
@@ -60,9 +60,8 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 viewModel = viewModel,
                                 onRequestPermission = { requestLocationPermission() },
-                                onIrACasa = { viewModel.irACasa() },
+                                onIrACasa = { viewModel.iniciarNavegacion() },
                                 onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
-                                onAbrirAjustes = { },
                                 hasLocationPermission = hasLocationPermission()
                             )
                         }
@@ -81,7 +80,7 @@ class MainActivity : ComponentActivity() {
                             NavigationScreen(
                                 viewModel = viewModel,
                                 onBack = { 
-                                    viewModel.limpiarRuta()
+                                    viewModel.detenerNavegacion()
                                     viewModel.cambiarPantalla(Pantalla.MAP)
                                 }
                             )
@@ -90,9 +89,8 @@ class MainActivity : ComponentActivity() {
                             MainScreen(
                                 viewModel = viewModel,
                                 onRequestPermission = { requestLocationPermission() },
-                                onIrACasa = { viewModel.irACasa() },
+                                onIrACasa = { viewModel.iniciarNavegacion() },
                                 onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
-                                onAbrirAjustes = { },
                                 hasLocationPermission = hasLocationPermission()
                             )
                         }
@@ -102,15 +100,13 @@ class MainActivity : ComponentActivity() {
         }
 
         if (hasLocationPermission()) {
-            viewModel.obtenerUbicacion()
+            viewModel.obtenerUbicacionUnica()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (hasLocationPermission()) {
-            viewModel.cargarCasa()
-        }
+        viewModel.cargarCasa()
     }
 
     private fun hasLocationPermission(): Boolean {

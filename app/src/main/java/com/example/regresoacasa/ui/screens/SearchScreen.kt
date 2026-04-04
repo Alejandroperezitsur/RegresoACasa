@@ -44,12 +44,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.regresoacasa.domain.model.Lugar
-import com.example.regresoacasa.ui.viewmodel.MainViewModel
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchScreen(
-    viewModel: MainViewModel,
+    viewModel: NavigationViewModel,
     onBack: () -> Unit,
     onGuardarComoCasa: () -> Unit
 ) {

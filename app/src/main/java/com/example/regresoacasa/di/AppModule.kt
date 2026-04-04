@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.example.regresoacasa.BuildConfig
 import com.example.regresoacasa.data.local.AppDatabase
 import com.example.regresoacasa.data.local.LugarFavoritoDao
+import com.example.regresoacasa.data.location.LocationTrackingService
 import com.example.regresoacasa.data.remote.NominatimApiService
 import com.example.regresoacasa.data.remote.OrsApiService
 import com.example.regresoacasa.data.remote.RetrofitClient
@@ -32,6 +33,11 @@ class AppModule private constructor(context: Context) {
     ).build()
 
     val lugarFavoritoDao: LugarFavoritoDao = database.lugarFavoritoDao()
+
+    // Location Tracking
+    val locationTrackingService: LocationTrackingService by lazy {
+        LocationTrackingService(appContext)
+    }
 
     // API Services
     val nominatimApi: NominatimApiService = RetrofitClient.nominatimApiService

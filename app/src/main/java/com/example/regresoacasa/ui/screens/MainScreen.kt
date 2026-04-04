@@ -23,8 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -49,16 +47,15 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.ui.components.MapaView
-import com.example.regresoacasa.ui.viewmodel.MainUiState
-import com.example.regresoacasa.ui.viewmodel.MainViewModel
+import com.example.regresoacasa.ui.state.UiState
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
 @Composable
 fun MainScreen(
-    viewModel: MainViewModel,
+    viewModel: NavigationViewModel,
     onRequestPermission: () -> Unit,
     onIrACasa: () -> Unit,
     onBuscarCasa: () -> Unit,
-    onAbrirAjustes: () -> Unit,
     hasLocationPermission: Boolean
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -68,7 +65,9 @@ fun MainScreen(
         MapaView(
             ubicacion = uiState.ubicacionActual,
             destino = uiState.casa,
-            ruta = uiState.rutaActual?.puntos
+            ruta = uiState.rutaActual?.puntos,
+            isFollowingUser = uiState.navigationState.isFollowingUser,
+            onFollowUserToggle = { viewModel.toggleFollowUser() }
         )
 
         // Header superior
@@ -82,7 +81,7 @@ fun MainScreen(
             tieneCasa = uiState.casa != null,
             hasLocationPermission = hasLocationPermission,
             onRequestPermission = onRequestPermission,
-            onMiUbicacion = { viewModel.obtenerUbicacion() },
+            onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
             onBuscarCasa = onBuscarCasa,
             onIrACasa = onIrACasa,
             modifier = Modifier.align(Alignment.BottomCenter)
@@ -100,9 +99,9 @@ fun MainScreen(
         }
 
         // Mensaje de error
-        uiState.error?.let { error ->
+        if (uiState.uiState is UiState.Error) {
             ErrorCard(
-                mensaje = error,
+                mensaje = uiState.error ?: "Error desconocido",
                 onDismiss = { viewModel.limpiarError() },
                 modifier = Modifier.align(Alignment.Center)
             )

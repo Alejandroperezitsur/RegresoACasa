@@ -15,7 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.DirectionsWalk
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
@@ -46,15 +46,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.regresoacasa.ui.components.MapaView
-import com.example.regresoacasa.ui.viewmodel.MainViewModel
+import com.example.regresoacasa.ui.state.NavigationUiState
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationScreen(
-    viewModel: MainViewModel,
+    viewModel: NavigationViewModel,
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val navigationState = uiState.navigationState
     var modoTransporte by remember { mutableStateOf("foot-walking") }
 
     Scaffold(
@@ -79,11 +81,13 @@ fun NavigationScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Mapa centrado en navegación
+            // Mapa con seguimiento
             MapaView(
-                ubicacion = uiState.ubicacionActual,
-                destino = uiState.casa,
-                ruta = uiState.rutaActual?.puntos
+                ubicacion = navigationState.userLocation,
+                destino = navigationState.destination,
+                ruta = navigationState.route?.puntos,
+                isFollowingUser = navigationState.isFollowingUser,
+                onFollowUserToggle = { viewModel.toggleFollowUser() }
             )
 
             // Controles superpuestos
@@ -99,14 +103,24 @@ fun NavigationScreen(
                     onModoChange = { modoTransporte = it }
                 )
 
-                // Card inferior con info de ruta
-                uiState.rutaActual?.let { ruta ->
-                    RutaInfoCard(
-                        distancia = ruta.distanciaFormateada,
-                        duracion = ruta.duracionFormateada,
-                        modo = modoTransporte
+                // Alerta de desviación
+                AnimatedVisibility(
+                    visible = navigationState.isOffRoute,
+                    enter = fadeIn(),
+                    exit = fadeOut()
+                ) {
+                    OffRouteCard(
+                        recalculating = uiState.navigationUiState is NavigationUiState.OffRoute && 
+                                       (uiState.navigationUiState as NavigationUiState.OffRoute).recalculating
                     )
                 }
+
+                // Card inferior con info de ruta en tiempo real
+                RealTimeRouteCard(
+                    distanciaRestante = navigationState.remainingDistance,
+                    duracionRestante = navigationState.remainingDuration,
+                    modo = modoTransporte
+                )
             }
 
             // Loading
@@ -182,6 +196,139 @@ private fun ModoButton(
         Icon(icon, null, modifier = Modifier.size(18.dp))
         Spacer(modifier = Modifier.width(4.dp))
         Text(label, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@Composable
+private fun OffRouteCard(recalculating: Boolean) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Warning,
+                contentDescription = null,
+                tint = Color(0xFFFF6F00),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = if (recalculating) "Recalculando..." else "Desviado de la ruta",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFE65100)
+                )
+                if (!recalculating) {
+                    Text(
+                        text = "Nueva ruta en un momento",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+            if (recalculating) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = Color(0xFFFF6F00)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RealTimeRouteCard(
+    distanciaRestante: Double,
+    duracionRestante: Double,
+    modo: String
+) {
+    // Formatear valores
+    val distanciaFormateada = if (distanciaRestante >= 1000) {
+        "%.2f km".format(distanciaRestante / 1000)
+    } else {
+        "%.0f m".format(distanciaRestante)
+    }
+    
+    val minutos = (duracionRestante / 60).toInt()
+    val horas = minutos / 60
+    val minsRestantes = minutos % 60
+    val duracionFormateada = if (horas > 0) {
+        "$horas h ${minsRestantes} min"
+    } else {
+        "$minutos min"
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF1565C0)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Home,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "Ruta a Casa",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = Color(0xFF1565C0)
+                    )
+                    Text(
+                        text = if (modo == "foot-walking") "Modo caminando" else "Modo conduciendo",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.Gray
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Stats en tiempo real
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                StatItem(
+                    icon = Icons.Default.LocationOn,
+                    value = distanciaFormateada,
+                    label = "Restante",
+                    color = Color(0xFF1565C0)
+                )
+                StatItem(
+                    icon = Icons.Default.DirectionsWalk,
+                    value = duracionFormateada,
+                    label = "Tiempo",
+                    color = Color(0xFF4CAF50)
+                )
+            }
+        }
     }
 }
 
