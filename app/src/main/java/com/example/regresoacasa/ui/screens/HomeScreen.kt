@@ -202,8 +202,8 @@ fun HomeScreen(
         CasaConfigDialog(
             direccionActual = casaDireccion,
             onDismiss = { mostrarConfigDialog = false },
-            onGuardar = { direccion, apiKey ->
-                viewModel.buscarYGuardarCasa(direccion, apiKey)
+            onGuardar = { direccion ->
+                viewModel.buscarYGuardarCasa(direccion)
                 mostrarConfigDialog = false
             },
             estaCargando = estaCargando

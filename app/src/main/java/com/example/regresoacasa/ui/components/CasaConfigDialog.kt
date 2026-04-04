@@ -14,11 +14,10 @@ import androidx.compose.ui.unit.dp
 fun CasaConfigDialog(
     direccionActual: String?,
     onDismiss: () -> Unit,
-    onGuardar: (direccion: String, apiKey: String) -> Unit,
+    onGuardar: (direccion: String) -> Unit,
     estaCargando: Boolean
 ) {
     var direccion by remember { mutableStateOf(direccionActual ?: "") }
-    var apiKey by remember { mutableStateOf("") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -31,7 +30,7 @@ fun CasaConfigDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    "Ingresa la dirección de tu casa y tu API key de OpenRouteService.",
+                    "Ingresa la dirección de tu casa para calcular la ruta.",
                     style = MaterialTheme.typography.bodyMedium
                 )
 
@@ -42,35 +41,16 @@ fun CasaConfigDialog(
                     placeholder = { Text("Ej: Calle Principal 123, Ciudad") },
                     modifier = Modifier.fillMaxWidth(),
                     keyboardOptions = KeyboardOptions(
-                        imeAction = ImeAction.Next
-                    ),
-                    singleLine = true
-                )
-
-                OutlinedTextField(
-                    value = apiKey,
-                    onValueChange = { apiKey = it },
-                    label = { Text("ORS API Key") },
-                    placeholder = { Text("Tu API key de openrouteservice.org") },
-                    modifier = Modifier.fillMaxWidth(),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Text,
                         imeAction = ImeAction.Done
                     ),
                     singleLine = true
-                )
-
-                Text(
-                    "Obtén tu API key gratuita en:\nopenrouteservice.org/dev/#/signup",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         },
         confirmButton = {
             Button(
-                onClick = { onGuardar(direccion, apiKey) },
-                enabled = direccion.isNotBlank() && apiKey.isNotBlank() && !estaCargando
+                onClick = { onGuardar(direccion) },
+                enabled = direccion.isNotBlank() && !estaCargando
             ) {
                 if (estaCargando) {
                     CircularProgressIndicator(

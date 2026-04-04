@@ -112,14 +112,14 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun buscarYGuardarCasa(direccion: String, apiKey: String) {
+    fun buscarYGuardarCasa(direccion: String) {
         viewModelScope.launch {
             _estaCargando.value = true
             _error.value = null
 
             try {
-                prefsManager.guardarOrsApiKey(apiKey)
-                _apiKeyConfigurada.value = true
+                // Usar API key hardcodeada por defecto
+                val apiKey = prefsManager.obtenerOrsApiKey()
 
                 val response = RetrofitClient.orsApiService.geocodeAddress(
                     apiKey = apiKey,
