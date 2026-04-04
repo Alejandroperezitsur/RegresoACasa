@@ -25,7 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.regresoacasa.ui.components.CasaConfigDialog
+import com.example.regresoacasa.ui.components.CasaMapSelector
 import com.example.regresoacasa.ui.components.OsmMap
 import com.example.regresoacasa.ui.components.RouteInfoCard
 import com.example.regresoacasa.ui.viewmodel.MapViewModel
@@ -381,16 +381,17 @@ fun MapScreen(
         }
     }
 
-    // Diálogo de configuración
+    // Selector de casa en mapa (pantalla completa)
     if (mostrarConfigDialog) {
-        CasaConfigDialog(
-            direccionActual = casaDireccion,
+        CasaMapSelector(
+            ubicacionInicial = casaUbicacion,
             onDismiss = { mostrarConfigDialog = false },
-            onGuardar = { direccion ->
-                viewModel.buscarYGuardarCasa(direccion)
+            onGuardar = { lat, lng, direccion ->
+                viewModel.guardarCasaDesdeMapa(lat, lng, direccion)
                 mostrarConfigDialog = false
             },
-            estaCargando = estaCargando
+            estaCargando = estaCargando,
+            viewModel = viewModel
         )
     }
 }

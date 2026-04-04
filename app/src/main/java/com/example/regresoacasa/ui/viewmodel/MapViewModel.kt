@@ -312,4 +312,89 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             obtenerUbicacionActual()
         }
     }
+
+    // NUEVAS FUNCIONES PARA SELECCIÓN DE CASA EN MAPA
+
+    suspend fun obtenerDireccionDeCoordenadas(lat: Double, lng: Double): String {
+        return try {
+            val response = RetrofitClient.nominatimApiService.reverseGeocode(lat, lng)
+            if (response.isSuccessful && response.body() != null) {
+                val result = response.body()!!
+                result.displayName ?: result.address?.formatAddress() ?: "Ubicación seleccionada"
+            } else {
+                "${String.format("%.5f", lat)}, ${String.format("%.5f", lng)}"
+            }
+        } catch (e: Exception) {
+            Log.e("MapViewModel", "Error reverse geocoding: ${e.message}")
+            "${String.format("%.5f", lat)}, ${String.format("%.5f", lng)}"
+        }
+    }
+
+    suspend fun buscarDireccion(query: String): Triple<Double, Double, String>? {
+        _estaCargando.value = true
+        _error.value = null
+        
+        return try {
+            // Primero intentar con Nominatim (gratuito, sin API key)
+            val nominatimResponse = RetrofitClient.nominatimApiService.searchAddress(query)
+            
+            if (nominatimResponse.isSuccessful && nominatimResponse.body() != null) {
+                val results = nominatimResponse.body()!!
+                if (results.isNotEmpty()) {
+                    val result = results[0]
+                    val lat = result.lat?.toDoubleOrNull() ?: 0.0
+                    val lng = result.lon?.toDoubleOrNull() ?: 0.0
+                    val address = result.displayName ?: result.address?.formatAddress() ?: query
+                    
+                    _estaCargando.value = false
+                    return Triple(lat, lng, address)
+                }
+            }
+            
+            // Fallback a OpenRouteService si Nominatim falla
+            val apiKey = prefsManager.obtenerOrsApiKey()
+            val orsResponse = RetrofitClient.orsApiService.geocodeAddress(apiKey, query)
+            
+            if (orsResponse.isSuccessful && orsResponse.body() != null) {
+                val geocodingResponse = orsResponse.body()!!
+                if (geocodingResponse.features.isNotEmpty()) {
+                    val feature = geocodingResponse.features[0]
+                    val coords = feature.geometry.coordinates
+                    val lng = coords[0]
+                    val lat = coords[1]
+                    
+                    _estaCargando.value = false
+                    return Triple(lat, lng, query)
+                }
+            }
+            
+            _error.value = "No se encontró la dirección"
+            _estaCargando.value = false
+            null
+            
+        } catch (e: Exception) {
+            Log.e("MapViewModel", "Error buscando dirección: ${e.message}")
+            _error.value = "Error al buscar dirección: ${e.message}"
+            _estaCargando.value = false
+            null
+        }
+    }
+
+    fun guardarCasaDesdeMapa(lat: Double, lng: Double, direccion: String) {
+        viewModelScope.launch {
+            _estaCargando.value = true
+            _error.value = null
+            
+            try {
+                prefsManager.guardarCasa(lat, lng, direccion)
+                _casaUbicacion.value = GeoPoint(lat, lng)
+                _casaDireccion.value = direccion
+                _estaCargando.value = false
+                Log.d("MapViewModel", "Casa guardada: $direccion ($lat, $lng)")
+            } catch (e: Exception) {
+                _error.value = "Error al guardar casa: ${e.message}"
+                _estaCargando.value = false
+            }
+        }
+    }
 }
