@@ -51,7 +51,7 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
-    private val _apiKeyConfigurada = MutableStateFlow(prefsManager.obtenerOrsApiKey() != null)
+    private val _apiKeyConfigurada = MutableStateFlow(prefsManager.obtenerOrsApiKey().isNotEmpty())
     val apiKeyConfigurada: StateFlow<Boolean> = _apiKeyConfigurada.asStateFlow()
 
     init {
@@ -295,6 +295,21 @@ class MapViewModel(application: Application) : AndroidViewModel(application) {
             "$horas h ${minsRestantes} min"
         } else {
             "$minsRestantes min"
+        }
+    }
+
+    fun setGpsDisabled() {
+        _error.value = "GPS desactivado. Activa la ubicación para continuar."
+    }
+
+    fun setPermissionDenied() {
+        _error.value = "Permiso de ubicación denegado. La app necesita acceder a tu ubicación."
+    }
+
+    fun refreshLocation() {
+        // Refrescar ubicación cuando la app vuelve a primer plano
+        if (tienePermisoUbicacion()) {
+            obtenerUbicacionActual()
         }
     }
 }
