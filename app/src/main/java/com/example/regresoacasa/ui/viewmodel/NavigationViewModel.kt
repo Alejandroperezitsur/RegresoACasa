@@ -11,14 +11,25 @@ import com.example.regresoacasa.domain.model.PuntoRuta
 import com.example.regresoacasa.domain.model.Ruta
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import com.example.regresoacasa.domain.usecase.BuscarLugaresUseCase
-import com.example.regresoacasa.domain.usecase.CalcularRutaUseCase
+import com.example.regresoacasa.data.location.LocationFilter
+import com.example.regresoacasa.domain.utils.SnapToRoute
 import com.example.regresoacasa.domain.usecase.GuardarFavoritoUseCase
-import com.example.regresoacasa.domain.usecase.ObtenerCasaUseCase
 import com.example.regresoacasa.ui.state.ErrorType
 import com.example.regresoacasa.ui.state.MainUiState
 import com.example.regresoacasa.ui.state.NavigationUiState
 import com.example.regresoacasa.ui.state.Pantalla
 import com.example.regresoacasa.ui.state.UiState
+import com.example.regresoacasa.ui.state.ConnectionState
+import com.example.regresoacasa.ui.state.SystemFeedbackState
+import com.example.regresoacasa.domain.utils.SmoothLocationTransition
+import com.example.regresoacasa.data.location.BatteryLevelListener
+import com.example.regresoacasa.data.location.BatteryMode
+import com.example.regresoacasa.data.safety.SafeReturnPreferences
+import com.example.regresoacasa.data.safety.SafeReturnSession
+import com.example.regresoacasa.utils.SafeHaptics
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -54,13 +65,131 @@ class NavigationViewModel(
     private var routeCalculationJob: Job? = null
     private val routeMutex = Mutex()
     
-    // Caché de última ruta
+    // Filtros de precisión GPS y transiciones suaves (Hardening)
+    private val locationFilter = LocationFilter(windowSize = 5)
+    private val smoothLocationTransition = SmoothLocationTransition(viewModelScope, durationMillis = 300)
+    private val ubicacionesRecientes = ArrayDeque<UbicacionUsuario>(10)
+    private var tiempoFueraDeRuta: Long = 0
+    private var ultimaVezEnRuta: Long = System.currentTimeMillis()
+    
+    // Feedback háptico robusto con manejo de errores
+    private lateinit var safeHaptics: SafeHaptics
+    val isHapticsAvailable: Boolean
+        get() = if (::safeHaptics.isInitialized) safeHaptics.isAvailable else false
+    
+    // Tracking de recálculo
     private var lastRouteCalculation: Long = 0
+    
+    // Estados de conexión y batería (Hardening)
+    private lateinit var batteryLevelListener: BatteryLevelListener
+    private lateinit var safeReturnPreferences: SafeReturnPreferences
+    private var batteryMonitoringJob: Job? = null
+    private var currentBatteryMode: BatteryMode = BatteryMode.Normal
+    private val LOW_BATTERY_INTERVAL = 10000L // 10s en modo ahorro
+    private val NORMAL_INTERVAL = 3000L      // 3s en modo normal
+    
     private val MIN_RECALCULATION_INTERVAL = 10000L // 10 segundos mínimo entre recálculos
 
     init {
         cargarCasa()
         setupSearchDebounce()
+        // Hardening: Restaurar sesión de Regreso Seguro si existe
+        viewModelScope.launch {
+            restoreSafeReturnSession()
+        }
+    }
+    
+    /**
+     * Inicializa componentes que requieren Context (llamar desde Factory o Activity)
+     */
+    fun initializeWithContext(context: Context) {
+        batteryLevelListener = BatteryLevelListener(context)
+        safeReturnPreferences = SafeReturnPreferences(context)
+        safeHaptics = SafeHaptics(context)
+        setupBatteryMonitoring()
+    }
+    
+    /**
+     * Monitoreo de nivel de batería para modo ahorro automático
+     */
+    private fun setupBatteryMonitoring() {
+        if (!::batteryLevelListener.isInitialized) return
+        
+        batteryMonitoringJob?.cancel()
+        batteryMonitoringJob = viewModelScope.launch {
+            batteryLevelListener.batteryLevelFlow.collect { level ->
+                val wasLowBattery = currentBatteryMode is BatteryMode.LowBattery
+                
+                when {
+                    batteryLevelListener.shouldActivateLowBatteryMode(level) -> {
+                        currentBatteryMode = BatteryMode.LowBattery
+                        if (!wasLowBattery) {
+                            // Entró en modo ahorro - actualizar UI
+                            _uiState.update {
+                                it.copy(
+                                    batteryLevel = level,
+                                    isLowBatteryMode = true,
+                                    connectionState = ConnectionState.LowBattery(level)
+                                )
+                            }
+                            // Reiniciar tracking con intervalos más largos
+                            if (_uiState.value.isTrackingLocation) {
+                                reiniciarTrackingConNuevosIntervalos()
+                            }
+                        }
+                    }
+                    batteryLevelListener.shouldResumeNormalMode(level) && wasLowBattery -> {
+                        currentBatteryMode = BatteryMode.Normal
+                        _uiState.update {
+                            it.copy(
+                                batteryLevel = level,
+                                isLowBatteryMode = false,
+                                connectionState = ConnectionState.Connected
+                            )
+                        }
+                        // Volver a intervalos normales
+                        if (_uiState.value.isTrackingLocation) {
+                            reiniciarTrackingConNuevosIntervalos()
+                        }
+                    }
+                    else -> {
+                        // Solo actualizar nivel
+                        _uiState.update { it.copy(batteryLevel = level) }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Restaurar sesión de Regreso Seguro si es válida
+     */
+    private suspend fun restoreSafeReturnSession() {
+        if (!::safeReturnPreferences.isInitialized) return
+        
+        safeReturnPreferences.sessionFlow.collect { session ->
+            if (session?.isValid() == true) {
+                _uiState.update {
+                    it.copy(
+                        safeReturnSession = session,
+                        isSafeReturnActive = true
+                    )
+                }
+            }
+            // Solo necesitamos el primer valor, cancelar colección
+            // Nota: En un flow real esto se manejaría diferente
+            break
+        }
+    }
+    
+    /**
+     * Detectar estado de conexión a internet
+     */
+    private fun checkInternetConnection(context: Context): Boolean {
+        val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        val network = connectivityManager?.activeNetwork
+        val capabilities = connectivityManager?.getNetworkCapabilities(network)
+        return capabilities?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
     }
 
     private fun setupSearchDebounce() {
@@ -179,6 +308,23 @@ class NavigationViewModel(
             return
         }
 
+        // Feedback háptico: Navegación iniciada (con fallback visual)
+        safeHaptics.navigationStarted()
+        
+        // FASE 1: UX REDUNDANCY - Si no hay vibración, mostrar banner en UI
+        if (!isHapticsAvailable) {
+            _uiState.update { 
+                it.copy(
+                    navigationState = it.navigationState.copy(
+                        systemFeedback = SystemFeedbackState.HapticsUnavailable
+                    )
+                ) 
+            }
+        }
+        
+        // Reset de prioridad de vibraciones al iniciar navegación
+        safeHaptics.resetPriority()
+
         // Iniciar tracking continuo
         iniciarTrackingContinuo()
 
@@ -186,7 +332,7 @@ class NavigationViewModel(
         calcularRuta(casa, modo)
     }
 
-    private fun iniciarTrackingContinuo() {
+    private fun iniciarTrackingContinuo(intervalMillis: Long = NORMAL_INTERVAL) {
         // Cancelar tracking anterior si existe
         locationTrackingJob?.cancel()
 
@@ -195,42 +341,112 @@ class NavigationViewModel(
             
             try {
                 appModule.locationTrackingService
-                    .startLocationUpdates(intervalMillis = 3000, fastestIntervalMillis = 2000)
+                    .startLocationUpdates(intervalMillis = intervalMillis, fastestIntervalMillis = intervalMillis / 2)
                     .catch { e ->
                         _uiState.update {
                             it.copy(
                                 uiState = UiState.Error("Error de ubicación: ${e.message}"),
-                                isTrackingLocation = false
+                                isTrackingLocation = false,
+                                hasGpsSignal = false,
+                                connectionState = ConnectionState.GpsLost
                             )
                         }
                     }
                     .collect { ubicacion ->
+                        // Actualizar precisión GPS en estado
+                        _uiState.update {
+                            it.copy(
+                                gpsAccuracy = ubicacion.precision,
+                                hasGpsSignal = ubicacion.precision < 50f // Señal válida si < 50m
+                            )
+                        }
                         actualizarUbicacionEnNavegacion(ubicacion)
                     }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
                         uiState = UiState.Error("Permiso de ubicación requerido", false),
-                        isTrackingLocation = false
+                        isTrackingLocation = false,
+                        hasGpsSignal = false,
+                        connectionState = ConnectionState.GpsLost
                     )
                 }
             }
         }
     }
+    
+    /**
+     * Reinicia el tracking con nuevos intervalos (para modo ahorro)
+     */
+    private fun reiniciarTrackingConNuevosIntervalos() {
+        val interval = if (currentBatteryMode is BatteryMode.LowBattery) {
+            LOW_BATTERY_INTERVAL
+        } else {
+            NORMAL_INTERVAL
+        }
+        iniciarTrackingContinuo(interval)
+    }
 
-    private fun actualizarUbicacionEnNavegacion(ubicacion: UbicacionUsuario) {
+    private fun actualizarUbicacionEnNavegacion(ubicacionRaw: UbicacionUsuario) {
         val currentState = _uiState.value
         val ruta = currentState.rutaActual ?: return
 
-        // Calcular distancia a la ruta
+        // ============ PIPELINE DE PROCESAMIENTO GPS (HARDENING) ============
+        // ORDEN CRÍTICO: raw → filter → smooth → snap → state
+        
+        // 1. FILTRO: Suavizar ubicación GPS (moving average)
+        val ubicacionFiltrada = locationFilter.filter(ubicacionRaw)
+        
+        // 2. SMOOTH: Transición suave para evitar saltos bruscos
+        val (smoothedLat, smoothedLon) = smoothLocationTransition.getSmoothedLocation(
+            ubicacionFiltrada.latitud, 
+            ubicacionFiltrada.longitud
+        )
+        val ubicacionSuavizada = ubicacionFiltrada.copy(
+            latitud = smoothedLat,
+            longitud = smoothedLon
+        )
+        
+        // 3. SNAP: Ajustar a la ruta más cercana
+        val ubicacion = SnapToRoute.snap(ubicacionSuavizada, ruta, maxDistance = 25.0)
+
+        // 4. TRACKING DE HISTORIAL para dirección de movimiento
+        ubicacionesRecientes.addLast(ubicacion)
+        if (ubicacionesRecientes.size > 10) {
+            ubicacionesRecientes.removeFirst()
+        }
+
+        // 5. Calcular distancia a la ruta
         val distanciaARuta = calcularDistanciaARuta(ubicacion, ruta)
         val isOffRoute = distanciaARuta > 50 // 50 metros de tolerancia
 
-        // Calcular distancia restante (aproximada)
+        // 6. Tracking de tiempo fuera de ruta (para re-routing inteligente)
+        val currentTime = System.currentTimeMillis()
+        if (isOffRoute) {
+            tiempoFueraDeRuta += (currentTime - ultimaVezEnRuta)
+        } else {
+            tiempoFueraDeRuta = 0
+            ultimaVezEnRuta = currentTime
+        }
+
+        // 7. Calcular distancia restante y tiempo
         val remainingDistance = calcularDistanciaRestante(ubicacion, ruta)
         val remainingDuration = (remainingDistance / ruta.distanciaMetros) * ruta.duracionSegundos
 
-        // Actualizar estado de navegación
+        // 8. DETECCIÓN DE LLEGADA (nueva)
+        val hasArrived = detectarLlegada(remainingDistance, ubicacion)
+        
+        // 9. TURN-BY-TURN NAVIGATION (nueva)
+        val (currentInstruction, distanceToNextTurn, progressToNextTurn) = calcularInstruccionActual(
+            ubicacion, ruta, remainingDistance
+        )
+        
+        // 10. Vibraciones de proximidad (nueva)
+        if (!hasArrived && currentInstruction != null) {
+            procesarVibracionesProximidad(distanceToNextTurn, isOffRoute)
+        }
+
+        // 11. Actualizar estado de navegación
         val navigationState = NavigationState(
             userLocation = ubicacion,
             route = ruta,
@@ -240,7 +456,21 @@ class NavigationViewModel(
             isOffRoute = isOffRoute,
             distanceToRoute = distanciaARuta,
             isFollowingUser = currentState.navigationState.isFollowingUser,
-            lastRecalculation = currentState.navigationState.lastRecalculation
+            lastRecalculation = currentState.navigationState.lastRecalculation,
+            // Campos nuevos
+            currentInstruction = currentInstruction,
+            distanceToNextTurn = distanceToNextTurn,
+            progressToNextTurn = progressToNextTurn,
+            hasArrived = hasArrived || currentState.navigationState.hasArrived,
+            totalDistance = ruta.distanciaMetros,
+            elapsedTime = if (currentState.navigationState.startTime > 0) {
+                currentTime - currentState.navigationState.startTime
+            } else 0,
+            startTime = if (currentState.navigationState.startTime > 0) {
+                currentState.navigationState.startTime
+            } else currentTime,
+            // Preservar estado de feedback háptico
+            systemFeedback = currentState.navigationState.systemFeedback
         )
 
         _uiState.update {
@@ -255,8 +485,8 @@ class NavigationViewModel(
             )
         }
 
-        // Re-routing automático si está muy desviado
-        if (isOffRoute && distanciaARuta > 100) {
+        // 9. Re-routing automático inteligente (>100m Y >5s fuera de ruta)
+        if (isOffRoute && distanciaARuta > 100 && tiempoFueraDeRuta > 5000) {
             recalcularRutaSiEsNecesario()
         }
     }
@@ -333,6 +563,10 @@ class NavigationViewModel(
                                     navigationUiState = NavigationUiState.Navigating(navigationState)
                                 )
                             }
+                            
+                            // FASE 5: Resetear prioridad después de recalcular ruta
+                            safeHaptics.resetPriority()
+                            safeHaptics.routeRecalculated()
                         },
                         onFailure = { error ->
                             val errorType = when {
@@ -530,6 +764,141 @@ class NavigationViewModel(
         val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return R * c
+    }
+
+    // ==================== TURN-BY-TURN & ARRIVAL LOGIC ====================
+
+    private var lastVibrationDistance: Double = Double.MAX_VALUE
+    private var hasArrivedTriggered: Boolean = false
+
+    /**
+     * Detecta si el usuario ha llegado al destino
+     * Criterios: < 30m del destino y sin movimiento significativo
+     */
+    private fun detectarLlegada(remainingDistance: Double, ubicacion: UbicacionUsuario): Boolean {
+        if (hasArrivedTriggered) return true
+        
+        // Si estamos a menos de 30m del destino
+        if (remainingDistance < 30) {
+            // Verificar si hay historial suficiente
+            if (ubicacionesRecientes.size >= 3) {
+                // Calcular movimiento reciente
+                val recentLocations = ubicacionesRecientes.takeLast(3)
+                val totalMovement = recentLocations.zipWithNext { a, b ->
+                    haversineDistance(a.latitud, a.longitud, b.latitud, b.longitud)
+                }.sum()
+                
+                // Si se movió menos de 5m en las últimas 3 actualizaciones = llegada
+                if (totalMovement < 5.0) {
+                    hasArrivedTriggered = true
+                    // Vibración de celebración (con manejo de errores automático)
+                    safeHaptics.arrivalCelebration()
+                    // FASE 5: Resetear prioridad después de llegada
+                    safeHaptics.resetPriority()
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    /**
+     * Calcula la instrucción actual de navegación turn-by-turn
+     * MVP: Simplificado - solo "Continúa recto" basado en la ruta
+     */
+    private fun calcularInstruccionActual(
+        ubicacion: UbicacionUsuario,
+        ruta: Ruta,
+        remainingDistance: Double
+    ): Triple<InstruccionNavegacion?, Double, Float> {
+        // MVP simplificado: Usar distancia restante como proxy de instrucción
+        // En una implementación completa, analizaríamos los puntos de la ruta
+        // para detectar giros reales
+        
+        val instruction = if (remainingDistance < 50) {
+            InstruccionNavegacion(
+                texto = "Estás llegando",
+                distancia = remainingDistance,
+                tipo = TipoManiobra.DESTINO
+            )
+        } else {
+            InstruccionNavegacion(
+                texto = "Continúa hacia tu destino",
+                distancia = remainingDistance,
+                tipo = TipoManiobra.CONTINUA_RECTO
+            )
+        }
+        
+        // Calcular progreso hacia la siguiente "maniobra" (simplificado)
+        val totalDistance = ruta.distanciaMetros
+        val progress = if (totalDistance > 0) {
+            ((totalDistance - remainingDistance) / totalDistance).toFloat()
+        } else 0f
+        
+        return Triple(instruction, remainingDistance, progress.coerceIn(0f, 1f))
+    }
+
+    /**
+     * Procesa las vibraciones de proximidad para giros
+     * MVP: Simplificado - vibraciones basadas en distancia restante total
+     */
+    private fun procesarVibracionesProximidad(distanceToNextTurn: Double, isOffRoute: Boolean) {
+        // UX REDUNDANCY: Vibración + Visual intensificado si no hay haptics
+        if (isOffRoute && lastVibrationDistance > 100) {
+            safeHaptics.offRouteDetected()
+            lastVibrationDistance = 0.0
+            return
+        }
+        
+        // Vibraciones de proximidad (solo si nos acercamos)
+        if (distanceToNextTurn < lastVibrationDistance) {
+            when {
+                distanceToNextTurn <= 20 && lastVibrationDistance > 20 -> {
+                    safeHaptics.turnApproaching20m()
+                }
+                distanceToNextTurn <= 50 && lastVibrationDistance > 50 -> {
+                    safeHaptics.turnApproaching50m()
+                }
+                distanceToNextTurn <= 100 && lastVibrationDistance > 100 -> {
+                    safeHaptics.turnApproaching100m()
+                }
+            }
+        }
+        
+        lastVibrationDistance = distanceToNextTurn
+    }
+
+    // ==================== FUNCIONES DE LLEGADA ====================
+
+    /**
+     * Compartir llegada exitosa a contacto de confianza
+     */
+    fun shareArrival() {
+        // Vibración de celebración (con manejo de errores automático en SafeHaptics)
+        safeHaptics.arrivalCelebration()
+        
+        val session = _uiState.value.safeReturnSession
+        if (session != null) {
+            // Aquí se implementaría el envío real al contacto
+            // Por ahora, solo marcamos como completado
+            viewModelScope.launch {
+                safeReturnPreferences.clearSession()
+            }
+        }
+        
+        dismissArrival()
+    }
+
+    /**
+     * Cerrar pantalla de celebración de llegada
+     */
+    fun dismissArrival() {
+        _uiState.update {
+            it.copy(
+                navigationState = it.navigationState.copy(hasArrived = false)
+            )
+        }
+        detenerNavegacion()
     }
 
     class Factory(private val appModule: AppModule) : ViewModelProvider.Factory {

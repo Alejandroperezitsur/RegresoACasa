@@ -47,6 +47,9 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         
+        // Inicializar ViewModel con Context para acceder a servicios del sistema
+        viewModel.initializeWithContext(this)
+        
         setContent {
             RegresoACasaTheme {
                 Surface(

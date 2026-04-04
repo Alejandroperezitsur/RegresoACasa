@@ -8,6 +8,8 @@ import com.example.regresoacasa.data.local.LugarFavoritoDao
 import com.example.regresoacasa.data.local.entity.LugarFavoritoEntity
 import com.example.regresoacasa.data.remote.NominatimApiService
 import com.example.regresoacasa.data.remote.OrsApiService
+import com.example.regresoacasa.domain.model.InstruccionNavegacion
+import com.example.regresoacasa.domain.model.TipoManiobra
 import com.example.regresoacasa.domain.model.Lugar
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.domain.model.PuntoRuta
@@ -100,10 +102,23 @@ class MapRepositoryImpl(
                     val route = routeResponse.routes[0]
                     val puntos = decodificarPolyline(route.geometry)
 
+                    // Extraer instrucciones de los steps
+                    val instrucciones = route.segments.flatMap { segment ->
+                        segment.steps.map { step ->
+                            InstruccionNavegacion(
+                                texto = step.instruction,
+                                distancia = step.distance,
+                                tipo = mapTypeToManiobra(step.type),
+                                nombreCalle = step.name ?: ""
+                            )
+                        }
+                    }
+
                     val ruta = Ruta(
                         distanciaMetros = route.summary.distance,
                         duracionSegundos = route.summary.duration,
-                        puntos = puntos
+                        puntos = puntos,
+                        instrucciones = instrucciones
                     )
                     Result.success(ruta)
                 } else {
@@ -223,5 +238,25 @@ class MapRepositoryImpl(
             longitud = longitud,
             tipo = tipo.name
         )
+    }
+
+    /**
+     * Mapea el tipo de instrucción de OpenRouteService a TipoManiobra
+     * Basado en: https://github.com/GIScience/openrouteservice-docs/blob/master/README.md
+     */
+    private fun mapTypeToManiobra(type: Int): TipoManiobra {
+        return when (type) {
+            0 -> TipoManiobra.CONTINUA_RECTO  // Continue straight
+            1 -> TipoManiobra.GIRA_DERECHA     // Turn slight right
+            2 -> TipoManiobra.GIRA_IZQUIERDA   // Turn slight left
+            3 -> TipoManiobra.GIRA_DERECHA     // Turn right
+            4 -> TipoManiobra.GIRA_IZQUIERDA   // Turn left
+            5 -> TipoManiobra.GIRA_DERECHA     // Turn sharp right
+            6 -> TipoManiobra.GIRA_IZQUIERDA   // Turn sharp left
+            7 -> TipoManiobra.MEDIA_VUELTA     // U-turn
+            8, 9 -> TipoManiobra.ROTONDA       // Roundabout (enter/exit)
+            10 -> TipoManiobra.DESTINO         // Arrive at destination
+            else -> TipoManiobra.CONTINUA_RECTO
+        }
     }
 }

@@ -67,7 +67,16 @@ data class MainUiState(
     val estaCalculandoRuta: Boolean = false,
     val estaBuscando: Boolean = false,
     val estaGuardando: Boolean = false,
-    val isTrackingLocation: Boolean = false
+    val isTrackingLocation: Boolean = false,
+    
+    // Nuevos: Estados de confianza y conexión (Hardening)
+    val gpsAccuracy: Float? = null,
+    val hasGpsSignal: Boolean = true,
+    val connectionState: ConnectionState = ConnectionState.Connected,
+    val batteryLevel: Int = 100,
+    val isLowBatteryMode: Boolean = false,
+    val safeReturnSession: com.example.regresoacasa.data.safety.SafeReturnSession? = null,
+    val isSafeReturnActive: Boolean = false
 )
 
 enum class Pantalla {
