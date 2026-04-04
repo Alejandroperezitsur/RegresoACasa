@@ -12,9 +12,10 @@ class PreferencesManager(context: Context) {
         private const val KEY_CASA_LNG = "casa_lng"
         private const val KEY_CASA_DIRECCION = "casa_direccion"
         private const val KEY_ORS_API_KEY = "ors_api_key"
+        private const val KEY_ONBOARDING_VISTO = "onboarding_visto"
         
-        // API Key hardcodeada de OpenRouteService
-        const val DEFAULT_ORS_API_KEY = "5b3ce3597851110001cf6248"
+        // API Key hardcodeada de OpenRouteService (fallback)
+        const val DEFAULT_ORS_API_KEY = ""
     }
 
     fun guardarCasa(lat: Double, lng: Double, direccion: String) {
@@ -49,8 +50,15 @@ class PreferencesManager(context: Context) {
     }
 
     fun obtenerOrsApiKey(): String {
-        // Retorna la API key guardada o la default hardcodeada
         return prefs.getString(KEY_ORS_API_KEY, null) ?: DEFAULT_ORS_API_KEY
+    }
+
+    fun marcarOnboardingVisto() {
+        prefs.edit().putBoolean(KEY_ONBOARDING_VISTO, true).apply()
+    }
+
+    fun haVistoOnboarding(): Boolean {
+        return prefs.getBoolean(KEY_ONBOARDING_VISTO, false)
     }
 
     fun borrarCasa() {

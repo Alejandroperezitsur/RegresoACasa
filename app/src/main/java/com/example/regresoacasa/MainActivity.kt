@@ -1,11 +1,8 @@
 package com.example.regresoacasa
 
 import android.Manifest
-import android.content.Context
 import android.content.pm.PackageManager
-import android.location.LocationManager
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -14,28 +11,34 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
-import com.example.regresoacasa.ui.screens.MapScreen
+import com.example.regresoacasa.di.AppModule
+import com.example.regresoacasa.ui.screens.MainScreen
+import com.example.regresoacasa.ui.screens.NavigationScreen
+import com.example.regresoacasa.ui.screens.SearchScreen
 import com.example.regresoacasa.ui.theme.RegresoACasaTheme
-import com.example.regresoacasa.ui.viewmodel.MapViewModel
+import com.example.regresoacasa.ui.viewmodel.MainViewModel
+import com.example.regresoacasa.ui.viewmodel.Pantalla
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: MapViewModel by viewModels()
+    private val appModule by lazy { AppModule.getInstance(this) }
+    
+    private val viewModel: MainViewModel by viewModels {
+        MainViewModel.Factory(appModule)
+    }
 
     private val locationPermissionRequest = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         when {
             permissions.getOrDefault(Manifest.permission.ACCESS_FINE_LOCATION, false) -> {
-                checkGpsAndGetLocation()
+                viewModel.obtenerUbicacion()
             }
             permissions.getOrDefault(Manifest.permission.ACCESS_COARSE_LOCATION, false) -> {
-                checkGpsAndGetLocation()
-            }
-            else -> {
-                viewModel.setPermissionDenied()
+                viewModel.obtenerUbicacion()
             }
         }
     }
@@ -43,34 +46,70 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        
         setContent {
             RegresoACasaTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    MapScreen(
-                        viewModel = viewModel,
-                        onRequestLocationPermission = { requestLocationPermission() },
-                        onOpenGpsSettings = { openGpsSettings() },
-                        isGpsEnabled = { isGpsEnabled() },
-                        hasLocationPermission = { hasLocationPermission() }
-                    )
+                    val uiState = viewModel.uiState.collectAsState().value
+                    
+                    when (uiState.pantallaActual) {
+                        Pantalla.MAP -> {
+                            MainScreen(
+                                viewModel = viewModel,
+                                onRequestPermission = { requestLocationPermission() },
+                                onIrACasa = { viewModel.irACasa() },
+                                onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
+                                onAbrirAjustes = { },
+                                hasLocationPermission = hasLocationPermission()
+                            )
+                        }
+                        Pantalla.SEARCH -> {
+                            SearchScreen(
+                                viewModel = viewModel,
+                                onBack = { viewModel.cambiarPantalla(Pantalla.MAP) },
+                                onGuardarComoCasa = {
+                                    uiState.lugarSeleccionado?.let { lugar ->
+                                        viewModel.guardarCasaDesdeLugar(lugar)
+                                    }
+                                }
+                            )
+                        }
+                        Pantalla.NAVEGACION -> {
+                            NavigationScreen(
+                                viewModel = viewModel,
+                                onBack = { 
+                                    viewModel.limpiarRuta()
+                                    viewModel.cambiarPantalla(Pantalla.MAP)
+                                }
+                            )
+                        }
+                        else -> {
+                            MainScreen(
+                                viewModel = viewModel,
+                                onRequestPermission = { requestLocationPermission() },
+                                onIrACasa = { viewModel.irACasa() },
+                                onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
+                                onAbrirAjustes = { },
+                                hasLocationPermission = hasLocationPermission()
+                            )
+                        }
+                    }
                 }
             }
         }
 
-        // Verificar permisos al iniciar
         if (hasLocationPermission()) {
-            checkGpsAndGetLocation()
+            viewModel.obtenerUbicacion()
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // Verificar GPS cuando la app vuelve a primer plano
-        if (hasLocationPermission() && isGpsEnabled()) {
-            viewModel.refreshLocation()
+        if (hasLocationPermission()) {
+            viewModel.cargarCasa()
         }
     }
 
@@ -83,24 +122,6 @@ class MainActivity : ComponentActivity() {
             this,
             Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun isGpsEnabled(): Boolean {
-        val locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-        return locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) ||
-               locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
-    }
-
-    private fun checkGpsAndGetLocation() {
-        if (isGpsEnabled()) {
-            viewModel.obtenerUbicacionActual()
-        } else {
-            viewModel.setGpsDisabled()
-        }
-    }
-
-    private fun openGpsSettings() {
-        startActivity(android.content.Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS))
     }
 
     private fun requestLocationPermission() {
