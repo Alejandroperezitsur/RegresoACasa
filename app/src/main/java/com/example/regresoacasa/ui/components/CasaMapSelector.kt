@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import org.osmdroid.events.MapListener
 import org.osmdroid.events.ScrollEvent
 import org.osmdroid.events.ZoomEvent
@@ -60,12 +61,16 @@ fun CasaMapSelector(
         delay(500) // Debounce
         
         try {
-            val result = viewModel.obtenerDireccionDeCoordenadas(centerPoint.latitude, centerPoint.longitude)
-            direccion = result
+            // Timeout de 5 segundos para la llamada
+            val result = withTimeoutOrNull(5000) {
+                viewModel.obtenerDireccionDeCoordenadas(centerPoint.latitude, centerPoint.longitude)
+            }
+            direccion = result ?: "${String.format("%.5f", centerPoint.latitude)}, ${String.format("%.5f", centerPoint.longitude)}"
         } catch (e: Exception) {
-            direccion = "Ubicación seleccionada"
+            direccion = "Ubicación seleccionada (${String.format("%.5f", centerPoint.latitude)}, ${String.format("%.5f", centerPoint.longitude)})"
+        } finally {
+            estaBuscandoDireccion = false
         }
-        estaBuscandoDireccion = false
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
