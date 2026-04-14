@@ -6,12 +6,15 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -27,6 +30,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.domain.model.PuntoRuta
 import com.example.regresoacasa.domain.model.UbicacionUsuario
+import android.util.Log
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
@@ -34,6 +38,8 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.compass.CompassOverlay
+
+private const val TAG = "MapaView"
 
 @Composable
 fun MapaView(
@@ -46,15 +52,25 @@ fun MapaView(
 ) {
     val context = LocalContext.current
 
+    var mapError by remember { mutableStateOf<String?>(null) }
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var markerUsuario by remember { mutableStateOf<Marker?>(null) }
     var markerDestino by remember { mutableStateOf<Marker?>(null) }
     var polylineRuta by remember { mutableStateOf<Polyline?>(null) }
 
     DisposableEffect(context) {
-        Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+        try {
+            Configuration.getInstance().load(context, context.getSharedPreferences("osmdroid", 0))
+            Configuration.getInstance().userAgentValue = context.packageName
+        } catch (e: Exception) {
+            Log.e(TAG, "Error configurando OSMDroid", e)
+        }
         onDispose {
-            mapViewInstance?.onPause()
+            try {
+                mapViewInstance?.onPause()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error en onPause", e)
+            }
         }
     }
 
@@ -70,58 +86,107 @@ fun MapaView(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                MapView(ctx).apply {
-                    setTileSource(TileSourceFactory.MAPNIK)
-                    setMultiTouchControls(true)
-                    controller.setZoom(15.0)
+                try {
+                    MapView(ctx).apply {
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        setMultiTouchControls(true)
+                        controller.setZoom(15.0)
 
-                    val compass = CompassOverlay(ctx, this)
-                    compass.enableCompass()
-                    overlays.add(compass)
+                        try {
+                            val compass = CompassOverlay(ctx, this)
+                            compass.enableCompass()
+                            overlays.add(compass)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error creando brújula", e)
+                        }
 
-                    mapViewInstance = this
+                        mapViewInstance = this
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error creando MapView", e)
+                    mapError = e.message
+                    MapView(ctx)
                 }
             },
             update = { mapView ->
-                // Actualizar marcador de usuario
-                markerUsuario?.let { mapView.overlays.remove(it) }
-                ubicacion?.let { loc ->
-                    val geoPoint = GeoPoint(loc.latitud, loc.longitud)
-                    val marker = Marker(mapView).apply {
-                        position = geoPoint
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                        title = "Tu ubicación"
+                try {
+                    // Actualizar marcador de usuario
+                    markerUsuario?.let {
+                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
                     }
-                    mapView.overlays.add(marker)
-                    markerUsuario = marker
-                }
-
-                // Actualizar marcador de destino
-                markerDestino?.let { mapView.overlays.remove(it) }
-                destino?.let { dest ->
-                    val geoPoint = GeoPoint(dest.latitud, dest.longitud)
-                    val marker = crearMarcadorDestino(mapView, geoPoint, dest.nombre)
-                    mapView.overlays.add(marker)
-                    markerDestino = marker
-                }
-
-                // Actualizar polilínea de ruta
-                polylineRuta?.let { mapView.overlays.remove(it) }
-                ruta?.let { puntos ->
-                    if (puntos.isNotEmpty()) {
-                        val polyline = Polyline().apply {
-                            setPoints(puntos.map { GeoPoint(it.latitud, it.longitud) })
-                            outlinePaint.strokeWidth = 12f
-                            outlinePaint.color = Color.parseColor("#1565C0")
+                    ubicacion?.let { loc ->
+                        try {
+                            val geoPoint = GeoPoint(loc.latitud, loc.longitud)
+                            val marker = Marker(mapView).apply {
+                                position = geoPoint
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Tu ubicación"
+                            }
+                            mapView.overlays.add(marker)
+                            markerUsuario = marker
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error creando marcador usuario", e)
                         }
-                        mapView.overlays.add(polyline)
-                        polylineRuta = polyline
                     }
-                }
 
-                mapView.invalidate()
+                    // Actualizar marcador de destino
+                    markerDestino?.let {
+                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                    }
+                    destino?.let { dest ->
+                        try {
+                            val geoPoint = GeoPoint(dest.latitud, dest.longitud)
+                            val marker = crearMarcadorDestino(mapView, geoPoint, dest.nombre)
+                            mapView.overlays.add(marker)
+                            markerDestino = marker
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error creando marcador destino", e)
+                        }
+                    }
+
+                    // Actualizar polilínea de ruta
+                    polylineRuta?.let {
+                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                    }
+                    ruta?.let { puntos ->
+                        try {
+                            if (puntos.isNotEmpty()) {
+                                val polyline = Polyline().apply {
+                                    setPoints(puntos.map { GeoPoint(it.latitud, it.longitud) })
+                                    outlinePaint.strokeWidth = 12f
+                                    outlinePaint.color = Color.parseColor("#1565C0")
+                                }
+                                mapView.overlays.add(polyline)
+                                polylineRuta = polyline
+                            }
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error creando ruta", e)
+                        }
+                    }
+
+                    mapView.invalidate()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error actualizando mapa", e)
+                }
             }
         )
+
+        // Fallback UI cuando el mapa falla
+        if (mapError != null) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                verticalArrangement = Arrangement.Center,
+                horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "Cargando mapa...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
 
         // Botón para recentrar (visible cuando no se está siguiendo al usuario)
         if (!isFollowingUser) {
