@@ -72,8 +72,10 @@ class SafeHaptics(private val context: Context) {
                 Settings.System.HAPTIC_FEEDBACK_ENABLED,
                 1 // Default: habilitado
             ) == 1
+        } catch (e: SecurityException) {
+            Log.w(TAG, "SecurityException al leer haptics, asumiendo habilitado", e)
+            true
         } catch (e: Exception) {
-            // Si no podemos leer, asumir habilitado para no bloquear funcionalidad
             Log.w(TAG, "No se pudo leer configuración de haptics, asumiendo habilitado", e)
             true
         }
@@ -172,7 +174,7 @@ class SafeHaptics(private val context: Context) {
         }
 
         // FASE 3: Verificar rate limiting
-        if (!canVibrate()) {
+        if (!canVibrate(priority)) {
             return
         }
 
