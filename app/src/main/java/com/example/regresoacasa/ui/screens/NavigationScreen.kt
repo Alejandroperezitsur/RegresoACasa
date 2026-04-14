@@ -268,9 +268,19 @@ private fun TurnByTurnCard(
     icon: ImageVector,
     isImminent: Boolean
 ) {
-    val bgColor = if (isImminent) Color(0xFF1565C0) else Color.White
-    val textColor = if (isImminent) Color.White else Color(0xFF1565C0)
-    val subtitleColor = if (isImminent) Color.White.copy(alpha = 0.8f) else Color.Gray
+    // FASE 4: Sincronizar color con prioridad háptica
+    // CRITICAL (<20m) = azul muy oscuro, HIGH (20-50m) = azul normal, LOW (>50m) = blanco
+    val distanceValue = distance.replace(" m", "").replace(" km", "000").toIntOrNull() ?: 100
+    val isCritical = distanceValue <= 20
+    val isHighPriority = distanceValue <= 50
+    
+    val bgColor = when {
+        isCritical -> Color(0xFF0D47A1)       // Azul muy oscuro - CRITICAL (20m)
+        isHighPriority -> Color(0xFF1565C0)   // Azul normal - HIGH (50m)
+        else -> Color.White                    // Blanco - LOW/NORMAL
+    }
+    val textColor = if (isHighPriority) Color.White else Color(0xFF1565C0)
+    val subtitleColor = if (isHighPriority) Color.White.copy(alpha = 0.8f) else Color.Gray
 
     Card(
         modifier = Modifier
@@ -321,8 +331,8 @@ private fun TurnByTurnCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(8.dp),
-                color = if (isImminent) Color.White else Color(0xFF1565C0),
-                trackColor = if (isImminent) Color.White.copy(alpha = 0.3f) else Color.LightGray,
+                color = if (isHighPriority) Color.White else Color(0xFF1565C0),
+                trackColor = if (isHighPriority) Color.White.copy(alpha = 0.3f) else Color.LightGray,
                 drawStopIndicator = {}
             )
         }

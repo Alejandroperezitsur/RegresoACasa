@@ -7,6 +7,7 @@ import com.example.regresoacasa.di.AppModule
 import com.example.regresoacasa.domain.model.Lugar
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.domain.model.NavigationState
+import com.example.regresoacasa.domain.model.NavigationStatus
 import com.example.regresoacasa.domain.model.PuntoRuta
 import com.example.regresoacasa.domain.model.Ruta
 import com.example.regresoacasa.domain.model.UbicacionUsuario
@@ -71,6 +72,9 @@ class NavigationViewModel(
     private val ubicacionesRecientes = ArrayDeque<UbicacionUsuario>(10)
     private var tiempoFueraDeRuta: Long = 0
     private var ultimaVezEnRuta: Long = System.currentTimeMillis()
+    
+    // FASE 1: Tracking para reset de prioridad al volver a ruta
+    private var wasOffRoute: Boolean = false
     
     // Feedback háptico robusto con manejo de errores
     private lateinit var safeHaptics: SafeHaptics
@@ -441,10 +445,56 @@ class NavigationViewModel(
             ubicacion, ruta, remainingDistance
         )
         
+        // FASE 2: Anti-flicker - calcular bucket estable (nunca sube)
+        val newBucket = getDistanceBucket(distanceToNextTurn)
+        val stableBucket = if (newBucket < currentState.navigationState.distanceBucketStable) {
+            newBucket
+        } else {
+            currentState.navigationState.distanceBucketStable
+        }
+        
+        // FASE 3: Suavizado visual de distancia (lerp 0.2)
+        val displayedDistance = lerp(
+            currentState.navigationState.displayedDistance,
+            distanceToNextTurn,
+            0.2
+        )
+        
+        // FASE 4: Snap-to-route honesto - calcular desviación real
+        val realDeviation = if (ubicacion != currentState.navigationState.userLocation) {
+            haversineDistance(
+                ubicacion.latitud, ubicacion.longitud,
+                currentState.navigationState.userLocation?.latitud ?: ubicacion.latitud,
+                currentState.navigationState.userLocation?.longitud ?: ubicacion.longitud
+            )
+        } else 0.0
+        
+        // FASE 5: Estado global claro
+        val navigationStatus = when {
+            hasArrived -> NavigationStatus.ARRIVING
+            currentState.estaCalculandoRuta -> NavigationStatus.RECALCULATING
+            isOffRoute -> NavigationStatus.OFF_ROUTE
+            uiState.gpsAccuracy != null && uiState.gpsAccuracy > 25f -> NavigationStatus.GPS_WEAK
+            else -> NavigationStatus.NORMAL
+        }
+        
         // 10. Vibraciones de proximidad (nueva)
         if (!hasArrived && currentInstruction != null) {
-            procesarVibracionesProximidad(distanceToNextTurn, isOffRoute)
+            // Usar distancia estable para haptics
+            val stableDistance = when (stableBucket) {
+                20 -> 20.0
+                50 -> 50.0
+                100 -> 100.0
+                else -> distanceToNextTurn
+            }
+            procesarVibracionesProximidad(stableDistance, isOffRoute)
         }
+        
+        // FASE 1: Reset de prioridad cuando vuelve a ruta después de desviarse
+        if (wasOffRoute && !isOffRoute) {
+            safeHaptics.resetPriority()
+        }
+        wasOffRoute = isOffRoute
 
         // 11. Actualizar estado de navegación
         val navigationState = NavigationState(
@@ -470,7 +520,18 @@ class NavigationViewModel(
                 currentState.navigationState.startTime
             } else currentTime,
             // Preservar estado de feedback háptico
-            systemFeedback = currentState.navigationState.systemFeedback
+            systemFeedback = currentState.navigationState.systemFeedback,
+            // FASE 1-5: Estados de consistencia
+            navigationStatus = navigationStatus,
+            distanceToNextTurnStable = when (stableBucket) {
+                20 -> 20.0
+                50 -> 50.0
+                100 -> 100.0
+                else -> distanceToNextTurn
+            },
+            distanceBucketStable = stableBucket,
+            displayedDistance = displayedDistance,
+            realDeviation = realDeviation
         )
 
         _uiState.update {
@@ -766,10 +827,30 @@ class NavigationViewModel(
         return R * c
     }
 
+    // FASE 3: Suavizado visual
+    private fun lerp(start: Double, end: Double, fraction: Double): Double {
+        return start + (end - start) * fraction
+    }
+
     // ==================== TURN-BY-TURN & ARRIVAL LOGIC ====================
 
     private var lastVibrationDistance: Double = Double.MAX_VALUE
     private var hasArrivedTriggered: Boolean = false
+    
+    // RIESGO 2: Distance Lock - evita vibraciones repetidas en el mismo bucket
+    private var lastTriggeredDistanceBucket: Int? = null
+    
+    /**
+     * RIESGO 2: Obtiene el bucket de distancia para evitar eventos repetidos
+     */
+    private fun getDistanceBucket(distance: Double): Int {
+        return when {
+            distance <= 20 -> 20
+            distance <= 50 -> 50
+            distance <= 100 -> 100
+            else -> 999
+        }
+    }
 
     /**
      * Detecta si el usuario ha llegado al destino
@@ -839,29 +920,41 @@ class NavigationViewModel(
     }
 
     /**
-     * Procesa las vibraciones de proximidad para giros
-     * MVP: Simplificado - vibraciones basadas en distancia restante total
+     * RIESGO 2: Procesa las vibraciones de proximidad para giros con Distance Lock
+     * Evita vibraciones repetidas cuando el GPS fluctúa
      */
     private fun procesarVibracionesProximidad(distanceToNextTurn: Double, isOffRoute: Boolean) {
+        // RIESGO 4: Silencio inteligente - no vibrar si está quieto
+        if (ubicacionesRecientes.size >= 2) {
+            val recentLocations = ubicacionesRecientes.takeLast(2)
+            val movement = haversineDistance(
+                recentLocations[0].latitud, recentLocations[0].longitud,
+                recentLocations[1].latitud, recentLocations[1].longitud
+            )
+            if (movement < 0.5) {
+                // Usuario quieto - no vibrar
+                return
+            }
+        }
+        
         // UX REDUNDANCY: Vibración + Visual intensificado si no hay haptics
         if (isOffRoute && lastVibrationDistance > 100) {
             safeHaptics.offRouteDetected()
             lastVibrationDistance = 0.0
+            lastTriggeredDistanceBucket = null
             return
         }
         
-        // Vibraciones de proximidad (solo si nos acercamos)
-        if (distanceToNextTurn < lastVibrationDistance) {
-            when {
-                distanceToNextTurn <= 20 && lastVibrationDistance > 20 -> {
-                    safeHaptics.turnApproaching20m()
-                }
-                distanceToNextTurn <= 50 && lastVibrationDistance > 50 -> {
-                    safeHaptics.turnApproaching50m()
-                }
-                distanceToNextTurn <= 100 && lastVibrationDistance > 100 -> {
-                    safeHaptics.turnApproaching100m()
-                }
+        // RIESGO 2: Distance Lock - solo vibrar si cambia el bucket
+        val currentBucket = getDistanceBucket(distanceToNextTurn)
+        
+        if (currentBucket != lastTriggeredDistanceBucket) {
+            lastTriggeredDistanceBucket = currentBucket
+            
+            when (currentBucket) {
+                20 -> safeHaptics.turnApproaching20m()
+                50 -> safeHaptics.turnApproaching50m()
+                100 -> safeHaptics.turnApproaching100m()
             }
         }
         

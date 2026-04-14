@@ -22,6 +22,7 @@ class SafeHaptics(private val context: Context) {
         private const val TAG = "SafeHaptics"
         private const val MIN_INTERVAL_MS = 300L // FASE 3: Rate limiting global
         private const val GPS_LOST_INTERVAL = 10000L // FASE 4: Throttle GPS lost
+        private const val PRIORITY_DECAY_MS = 2000L // Auto-decay de prioridad
     }
 
     // FASE 5: Sistema de prioridades
@@ -55,6 +56,7 @@ class SafeHaptics(private val context: Context) {
 
     // FASE 5: Control de prioridad
     private var currentPriority = HapticPriority.LOW
+    private var lastPriorityUpdate = 0L
 
     val isAvailable: Boolean
         get() = vibrator?.hasVibrator() == true && isSystemHapticsEnabled()
@@ -78,16 +80,51 @@ class SafeHaptics(private val context: Context) {
     }
 
     /**
-     * FASE 3: Rate limiting global
-     * Nunca más de 1 vibración cada 300ms
+     * RIESGO 1: Auto-decay de prioridad
+     * Si pasan más de 2s sin eventos, vuelve a LOW automáticamente
      */
-    private fun canVibrate(): Boolean {
+    private fun decayPriorityIfNeeded() {
         val now = System.currentTimeMillis()
+        if (now - lastPriorityUpdate > PRIORITY_DECAY_MS && currentPriority != HapticPriority.LOW) {
+            currentPriority = HapticPriority.LOW
+            Log.d(TAG, "Auto-decay: prioridad reducida a LOW")
+        }
+    }
+
+    /**
+     * FASE 2: Rate limiting con Priority > Rate Limit
+     * CRITICAL siempre pasa
+     * HIGH puede romper el rate limit si supera prioridad actual
+     * Los demás respetan el rate limit de 300ms
+     */
+    private fun canVibrate(priority: HapticPriority): Boolean {
+        // RIESGO 1: Auto-decay de prioridad
+        decayPriorityIfNeeded()
+        
+        val now = System.currentTimeMillis()
+        
+        // CRITICAL siempre pasa (no puede ser bloqueado)
+        if (priority == HapticPriority.CRITICAL) {
+            lastVibrationTime = now
+            lastPriorityUpdate = now
+            return true
+        }
+        
+        // HIGH puede romper el rate limit si supera prioridad actual
+        if (priority == HapticPriority.HIGH && currentPriority < HapticPriority.HIGH) {
+            lastVibrationTime = now
+            lastPriorityUpdate = now
+            return true
+        }
+        
+        // Los demás respetan el rate limit
         if (now - lastVibrationTime < MIN_INTERVAL_MS) {
             Log.d(TAG, "Rate limit: ignorando vibración (debounce)")
             return false
         }
+        
         lastVibrationTime = now
+        lastPriorityUpdate = now
         return true
     }
 
@@ -116,6 +153,7 @@ class SafeHaptics(private val context: Context) {
      */
     fun resetPriority() {
         currentPriority = HapticPriority.LOW
+        lastPriorityUpdate = System.currentTimeMillis()
         Log.d(TAG, "Prioridad reseteada a LOW")
     }
 
@@ -163,14 +201,15 @@ class SafeHaptics(private val context: Context) {
     }
 
     // ============ PATRONES PREDEFINIDOS CON PRIORIDADES ============
+    // RIESGO 3: Micro-tuning - LOW sutil, MEDIUM claro, HIGH notable, CRITICAL imposible de ignorar
 
     fun navigationStarted() = vibrateSafely(
-        HapticPattern.Single("navigation_started", 100),
+        HapticPattern.Single("navigation_started", 40), // Reducido de 100ms a 40ms
         HapticPriority.LOW
     )
 
     fun turnApproaching100m() = vibrateSafely(
-        HapticPattern.Single("turn_100m", 150),
+        HapticPattern.Single("turn_100m", 40), // Reducido de 150ms a 40ms
         HapticPriority.LOW
     )
 
