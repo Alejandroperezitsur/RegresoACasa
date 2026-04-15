@@ -8,16 +8,12 @@ plugins {
 
 android {
     namespace = "com.example.regresoacasa"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.example.regresoacasa"
         minSdk = 24
-        targetSdk = 36
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -30,6 +26,14 @@ android {
         }
         val orsApiKey = localProperties.getProperty("ORS_API_KEY", "")
         buildConfigField("String", "ORS_API_KEY", "\"$orsApiKey\"")
+        
+        // Configuración para backend proxy
+        val backendUrl = localProperties.getProperty("BACKEND_PROXY_URL", "")
+        if (backendUrl.isNotEmpty()) {
+            buildConfigField("String", "BACKEND_PROXY_URL", "\"$backendUrl\"")
+        } else {
+            buildConfigField("String", "BACKEND_PROXY_URL", "\"\"")
+        }
     }
 
     buildTypes {
@@ -74,7 +78,8 @@ dependencies {
     implementation(libs.play.services.location)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
-    annotationProcessor("androidx.room:room-compiler:2.6.1")
+    kapt(libs.room.compiler)
+    implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
