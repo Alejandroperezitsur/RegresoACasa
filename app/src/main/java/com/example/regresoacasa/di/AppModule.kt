@@ -2,9 +2,12 @@ package com.example.regresoacasa.di
 
 import android.content.Context
 import androidx.room.Room
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.regresoacasa.BuildConfig
 import com.example.regresoacasa.data.local.AppDatabase
 import com.example.regresoacasa.data.local.LugarFavoritoDao
+import com.example.regresoacasa.data.local.SearchHistoryDao
 import com.example.regresoacasa.data.location.LocationTrackingService
 import com.example.regresoacasa.data.remote.NominatimApiService
 import com.example.regresoacasa.data.remote.OrsApiService
@@ -25,14 +28,35 @@ class AppModule private constructor(context: Context) {
 
     private val appContext = context.applicationContext
 
+    // Migration from version 2 to 3 (add search_history table)
+    private val MIGRATION_2_3 = object : Migration(2, 3) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("""
+                CREATE TABLE IF NOT EXISTS search_history (
+                    id TEXT PRIMARY KEY NOT NULL,
+                    query TEXT NOT NULL,
+                    displayName TEXT NOT NULL,
+                    latitud REAL NOT NULL,
+                    longitud REAL NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    searchCount INTEGER NOT NULL DEFAULT 1
+                )
+            """)
+            database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_search_history_query ON search_history(query)")
+        }
+    }
+
     // Database
     val database: AppDatabase = Room.databaseBuilder(
         appContext,
         AppDatabase::class.java,
         "regreso_a_casa_db"
-    ).build()
+    )
+    .addMigrations(MIGRATION_2_3)
+    .build()
 
     val lugarFavoritoDao: LugarFavoritoDao = database.lugarFavoritoDao()
+    val searchHistoryDao: SearchHistoryDao = database.searchHistoryDao()
 
     // Location Tracking
     val locationTrackingService: LocationTrackingService by lazy {

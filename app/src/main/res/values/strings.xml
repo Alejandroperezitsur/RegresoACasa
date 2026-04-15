@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">RegresoACasa</string>
+    <string name="navigation_service_description">Servicio de navegación activo para seguimiento de ruta</string>
+    <string name="location_permission_rationale">La aplicación necesita acceso a tu ubicación para calcular rutas y mostrar tu posición en el mapa.</string>
+    <string name="location_permission_denied">Permiso de ubicación denegado. Algunas funciones no estarán disponibles.</string>
+    <string name="open_settings">Abrir Configuración</string>
+    <string name="cancel">Cancelar</string>
+    <string name="grant_permission">Conceder Permiso</string>
+    <string name="api_key_missing">API Key no configurada</string>
+    <string name="api_key_missing_message">La API key de OpenRouteService no está configurada. Las rutas no funcionarán. Agrega ORS_API_KEY en local.properties</string>
 </resources>

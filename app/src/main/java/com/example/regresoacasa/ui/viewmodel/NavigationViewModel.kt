@@ -62,8 +62,10 @@ class NavigationViewModel(
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
+    private var searchJob: Job? = null
     private var locationTrackingJob: Job? = null
     private var routeCalculationJob: Job? = null
+    private var batteryMonitoringJob: Job? = null
     private val routeMutex = Mutex()
     
     // Filtros de precisión GPS y transiciones suaves (Hardening)
@@ -182,7 +184,7 @@ class NavigationViewModel(
             }
             // Solo necesitamos el primer valor, cancelar colección
             // Nota: En un flow real esto se manejaría diferente
-            break
+            return@collect
         }
     }
     
@@ -215,31 +217,34 @@ class NavigationViewModel(
     }
 
     private fun buscarLugares(query: String) {
-        viewModelScope.launch {
+        // Cancelar búsqueda anterior si existe
+        searchJob?.cancel()
+        
+        searchJob = viewModelScope.launch {
             _uiState.update { it.copy(estaBuscando = true, uiState = UiState.Loading) }
             
             try {
                 appModule.buscarLugaresUseCase(query).collect { result ->
-                    result.fold(
-                        onSuccess = { lugares ->
+                    when (result) {
+                        is com.example.regresoacasa.domain.model.ApiResult.Success -> {
                             _uiState.update {
                                 it.copy(
-                                    resultadosBusqueda = lugares,
+                                    resultadosBusqueda = result.data,
                                     estaBuscando = false,
                                     uiState = UiState.Success()
                                 )
                             }
-                        },
-                        onFailure = { error ->
+                        }
+                        is com.example.regresoacasa.domain.model.ApiResult.Error -> {
                             _uiState.update {
                                 it.copy(
-                                    error = "Error al buscar: ${error.message}",
+                                    error = result.error.message,
                                     estaBuscando = false,
-                                    uiState = UiState.Error(error.message ?: "Error desconocido")
+                                    uiState = UiState.Error(result.error.message)
                                 )
                             }
                         }
-                    )
+                    }
                 }
             } catch (e: Exception) {
                 _uiState.update {
@@ -593,27 +598,40 @@ class NavigationViewModel(
                     ) 
                 }
 
+                // Obtener ubicación actual para pasar al UseCase
+                val ubicacion = _uiState.value.ubicacionActual
+                if (ubicacion == null) {
+                    _uiState.update {
+                        it.copy(
+                            error = "Ubicación no disponible",
+                            estaCalculandoRuta = false,
+                            uiState = UiState.Error("GPS no disponible", false),
+                            navigationUiState = NavigationUiState.Error(
+                                "Ubicación requerida",
+                                ErrorType.GPS_ERROR
+                            )
+                        )
+                    }
+                    return@withLock
+                }
+
                 try {
-                    appModule.calcularRutaUseCase(destino, modo).fold(
-                        onSuccess = { ruta ->
+                    when (val result = appModule.calcularRutaUseCase(ubicacion, destino, modo)) {
+                        is com.example.regresoacasa.domain.model.ApiResult.Success -> {
+                            val ruta = result.data
                             lastRouteCalculation = System.currentTimeMillis()
                             
-                            val ubicacion = _uiState.value.ubicacionActual
-                            val navigationState = if (ubicacion != null) {
-                                NavigationState(
-                                    userLocation = ubicacion,
-                                    route = ruta,
-                                    destination = destino,
-                                    remainingDistance = ruta.distanciaMetros,
-                                    remainingDuration = ruta.duracionSegundos,
-                                    isOffRoute = false,
-                                    distanceToRoute = 0.0,
-                                    isFollowingUser = true,
-                                    lastRecalculation = System.currentTimeMillis()
-                                )
-                            } else {
-                                NavigationState(route = ruta, destination = destino)
-                            }
+                            val navigationState = NavigationState(
+                                userLocation = ubicacion,
+                                route = ruta,
+                                destination = destino,
+                                remainingDistance = ruta.distanciaMetros,
+                                remainingDuration = ruta.duracionSegundos,
+                                isOffRoute = false,
+                                distanceToRoute = 0.0,
+                                isFollowingUser = true,
+                                lastRecalculation = System.currentTimeMillis()
+                            )
 
                             _uiState.update {
                                 it.copy(
@@ -628,29 +646,30 @@ class NavigationViewModel(
                             // FASE 5: Resetear prioridad después de recalcular ruta
                             safeHaptics.resetPriority()
                             safeHaptics.routeRecalculated()
-                        },
-                        onFailure = { error ->
-                            val errorType = when {
-                                error.message?.contains("Unable to resolve host") == true ->
-                                    ErrorType.NO_INTERNET
-                                error.message?.contains("timeout") == true ->
-                                    ErrorType.TIMEOUT
+                        }
+                        is com.example.regresoacasa.domain.model.ApiResult.Error -> {
+                            val errorType = when (result.error) {
+                                is com.example.regresoacasa.domain.model.ApiError.InvalidApiKey -> ErrorType.API_KEY_INVALID
+                                is com.example.regresoacasa.domain.model.ApiError.NoInternet -> ErrorType.NO_INTERNET
+                                is com.example.regresoacasa.domain.model.ApiError.Timeout -> ErrorType.TIMEOUT
+                                is com.example.regresoacasa.domain.model.ApiError.ServerError -> ErrorType.SERVER_ERROR
+                                is com.example.regresoacasa.domain.model.ApiError.NotFound -> ErrorType.NO_ROUTE
                                 else -> ErrorType.API_ERROR
                             }
 
                             _uiState.update {
                                 it.copy(
-                                    error = error.message ?: "Error al calcular ruta",
+                                    error = result.error.message,
                                     estaCalculandoRuta = false,
-                                    uiState = UiState.Error(error.message ?: "Error"),
+                                    uiState = UiState.Error(result.error.message),
                                     navigationUiState = NavigationUiState.Error(
-                                        error.message ?: "Error",
+                                        result.error.message,
                                         errorType
                                     )
                                 )
                             }
                         }
-                    )
+                    }
                 } catch (e: Exception) {
                     _uiState.update {
                         it.copy(
@@ -765,7 +784,17 @@ class NavigationViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        detenerNavegacion()
+        // Cancelar todos los jobs activos para evitar memory leaks
+        searchJob?.cancel()
+        locationTrackingJob?.cancel()
+        routeCalculationJob?.cancel()
+        batteryMonitoringJob?.cancel()
+        
+        // Detener servicios de ubicación
+        appModule.locationTrackingService.stopLocationUpdates()
+        
+        // Limpiar buffers
+        ubicacionesRecientes.clear()
     }
 
     // ==================== MATH UTILS ====================
