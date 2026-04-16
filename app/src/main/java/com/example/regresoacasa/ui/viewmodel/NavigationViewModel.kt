@@ -13,6 +13,7 @@ import com.example.regresoacasa.domain.model.Ruta
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import com.example.regresoacasa.domain.usecase.BuscarLugaresUseCase
 import com.example.regresoacasa.data.location.LocationFilter
+import com.example.regresoacasa.data.location.LocationForegroundService
 import com.example.regresoacasa.domain.utils.SnapToRoute
 import com.example.regresoacasa.domain.usecase.GuardarFavoritoUseCase
 import com.example.regresoacasa.ui.state.ErrorType
@@ -169,11 +170,13 @@ class NavigationViewModel(
     
     /**
      * Restaurar sesión de Regreso Seguro si es válida
+     * CRÍTICO: Usar first() para evitar race condition en collect
      */
     private suspend fun restoreSafeReturnSession() {
         if (!::safeReturnPreferences.isInitialized) return
         
-        safeReturnPreferences.sessionFlow.collect { session ->
+        try {
+            val session = safeReturnPreferences.sessionFlow.first()
             if (session?.isValid() == true) {
                 _uiState.update {
                     it.copy(
@@ -182,9 +185,8 @@ class NavigationViewModel(
                     )
                 }
             }
-            // Solo necesitamos el primer valor, cancelar colección
-            // Nota: En un flow real esto se manejaría diferente
-            return@collect
+        } catch (e: Exception) {
+            Log.e("NavigationViewModel", "Error restoring safe return session", e)
         }
     }
     
@@ -382,6 +384,13 @@ class NavigationViewModel(
                 }
             }
         }
+        
+        // CRÍTICO: Iniciar ForegroundService para Android 10+ background tracking
+        try {
+            LocationForegroundService.start(appModule.appContext, intervalMillis)
+        } catch (e: Exception) {
+            Log.e("NavigationViewModel", "Error starting foreground service", e)
+        }
     }
     
     /**
@@ -401,7 +410,7 @@ class NavigationViewModel(
         val ruta = currentState.rutaActual ?: return
 
         // ============ PIPELINE DE PROCESAMIENTO GPS (HARDENING) ============
-        // ORDEN CRÍTICO: raw → filter → smooth → snap → state
+        // ORDEN CRÍTICO: raw → filter → smooth → velocity → snap → state
         
         // 1. FILTRO: Suavizar ubicación GPS (moving average)
         val ubicacionFiltrada = locationFilter.filter(ubicacionRaw)
@@ -416,8 +425,12 @@ class NavigationViewModel(
             longitud = smoothedLon
         )
         
-        // 3. SNAP: Ajustar a la ruta más cercana
-        val ubicacion = SnapToRoute.snap(ubicacionSuavizada, ruta, maxDistance = 25.0)
+        // 3. VELOCITY: Calcular velocidad actual para snap-to-route dinámico
+        val velocidadMs = calcularVelocidadActual(ubicacionSuavizada)
+        
+        // 4. SNAP: Ajustar a la ruta más cercana con tolerancia dinámica según velocidad
+        val maxDistanceDinamico = calcularMaxDistancePorVelocidad(velocidadMs)
+        val ubicacion = SnapToRoute.snap(ubicacionSuavizada, ruta, maxDistance = maxDistanceDinamico)
 
         // 4. TRACKING DE HISTORIAL para dirección de movimiento
         ubicacionesRecientes.addLast(ubicacion)
@@ -793,6 +806,13 @@ class NavigationViewModel(
         // Detener servicios de ubicación
         appModule.locationTrackingService.stopLocationUpdates()
         
+        // CRÍTICO: Detener ForegroundService para Android 10+
+        try {
+            LocationForegroundService.stop(appModule.appContext)
+        } catch (e: Exception) {
+            Log.e("NavigationViewModel", "Error stopping foreground service", e)
+        }
+        
         // Limpiar buffers
         ubicacionesRecientes.clear()
     }
@@ -848,12 +868,51 @@ class NavigationViewModel(
     }
 
     private fun haversineDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
-        val R = 6371000 // Radio de la Tierra en metros
+        val R = 6371000.0 // Radio de la Tierra en metros
         val dLat = Math.toRadians(lat2 - lat1)
         val dLon = Math.toRadians(lon2 - lon1)
-        val a = sin(dLat / 2).pow(2) + cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) * sin(dLon / 2).pow(2)
+        val a = sin(dLat / 2).pow(2) +
+                cos(Math.toRadians(lat1)) * cos(Math.toRadians(lat2)) *
+                sin(dLon / 2).pow(2)
         val c = 2 * atan2(sqrt(a), sqrt(1 - a))
         return R * c
+    }
+    
+    /**
+     * Calcula la velocidad actual del usuario en m/s basándose en ubicaciones recientes
+     */
+    private fun calcularVelocidadActual(ubicacionActual: UbicacionUsuario): Double {
+        if (ubicacionesRecientes.size < 2) return 0.0
+        
+        // Usar las últimas 2 ubicaciones para calcular velocidad instantánea
+        val ultima = ubicacionesRecientes.last()
+        val penultima = ubicacionesRecientes[ubicacionesRecientes.size - 2]
+        
+        val distancia = haversineDistance(
+            penultima.latitud, penultima.longitud,
+            ultima.latitud, ultima.longitud
+        )
+        
+        // Asumir intervalo de 3 segundos entre actualizaciones
+        val tiempoSegundos = 3.0
+        
+        return distancia / tiempoSegundos
+    }
+    
+    /**
+     * Calcula la distancia máxima de snap-to-route según velocidad del usuario
+     * - Caminando (<2 m/s): 15m
+     * - Corriendo (2-4 m/s): 25m
+     * - Coche lento (4-10 m/s): 50m
+     * - Coche rápido (>10 m/s): 100m
+     */
+    private fun calcularMaxDistancePorVelocidad(velocidadMs: Double): Double {
+        return when {
+            velocidadMs < 2.0 -> 15.0   // Caminando
+            velocidadMs < 4.0 -> 25.0   // Corriendo
+            velocidadMs < 10.0 -> 50.0  // Coche lento
+            else -> 100.0                // Coche rápido
+        }
     }
 
     // FASE 3: Suavizado visual

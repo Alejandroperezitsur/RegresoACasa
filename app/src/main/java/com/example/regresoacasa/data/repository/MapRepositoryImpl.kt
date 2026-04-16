@@ -69,46 +69,89 @@ class MapRepositoryImpl(
     }
 
     override suspend fun buscarLugares(query: String): ApiResult<List<Lugar>> {
-        return try {
-            withTimeout(30000) { // 30 segundos timeout
-                val response = nominatimApi.searchAddress(query)
-                
-                when {
-                    !response.isSuccessful -> {
-                        handleApiError<List<Lugar>>(response)
-                    }
-                    response.body() == null -> {
-                        ApiResult.Error(ApiError.EmptyResponse)
-                    }
-                    else -> {
-                        val results = response.body()!!.map { result ->
-                            Lugar(
-                                id = result.placeId?.toString() ?: "",
-                                nombre = result.displayName?.substringBefore(",") ?: "",
-                                direccion = result.displayName ?: "",
-                                latitud = result.lat?.toDoubleOrNull() ?: 0.0,
-                                longitud = result.lon?.toDoubleOrNull() ?: 0.0
-                            )
+        return retryWithBackoff(maxRetries = 3, initialDelay = 1000) {
+            try {
+                withTimeout(30000) { // 30 segundos timeout
+                    val response = nominatimApi.searchAddress(query)
+                    
+                    when {
+                        !response.isSuccessful -> {
+                            val error = handleApiError<List<Lugar>>(response)
+                            if (error is ApiResult.Error && error.error is ApiError.RateLimited) {
+                                throw RateLimitException((error.error as ApiError.RateLimited).retryAfter)
+                            }
+                            error
                         }
-                        if (results.isEmpty()) {
-                            ApiResult.Error(ApiError.NotFound)
-                        } else {
-                            ApiResult.Success(results)
+                        response.body() == null -> {
+                            ApiResult.Error(ApiError.EmptyResponse)
+                        }
+                        else -> {
+                            val results = response.body()!!.map { result ->
+                                Lugar(
+                                    id = result.placeId?.toString() ?: "",
+                                    nombre = result.displayName?.substringBefore(",") ?: "",
+                                    direccion = result.displayName ?: "",
+                                    latitud = result.lat?.toDoubleOrNull() ?: 0.0,
+                                    longitud = result.lon?.toDoubleOrNull() ?: 0.0
+                                )
+                            }
+                            if (results.isEmpty()) {
+                                ApiResult.Error(ApiError.NotFound)
+                            } else {
+                                ApiResult.Success(results)
+                            }
                         }
                     }
                 }
+            } catch (e: UnknownHostException) {
+                Log.e("MapRepository", "No internet connection", e)
+                ApiResult.Error(ApiError.NoInternet)
+            } catch (e: SocketTimeoutException) {
+                Log.e("MapRepository", "Request timeout", e)
+                ApiResult.Error(ApiError.Timeout)
+            } catch (e: RateLimitException) {
+                Log.e("MapRepository", "Rate limit exceeded", e)
+                throw e // Re-throw to trigger retry
+            } catch (e: Exception) {
+                Log.e("MapRepository", "Error searching places", e)
+                ApiResult.Error(ApiError.Unknown(e))
             }
-        } catch (e: UnknownHostException) {
-            Log.e("MapRepository", "No internet connection", e)
-            ApiResult.Error(ApiError.NoInternet)
-        } catch (e: SocketTimeoutException) {
-            Log.e("MapRepository", "Request timeout", e)
-            ApiResult.Error(ApiError.Timeout)
-        } catch (e: Exception) {
-            Log.e("MapRepository", "Error searching places", e)
-            ApiResult.Error(ApiError.Unknown(e))
         }
     }
+    
+    private suspend fun <T> retryWithBackoff(
+        maxRetries: Int = 3,
+        initialDelay: Long = 1000,
+        block: suspend () -> ApiResult<T>
+    ): ApiResult<T> {
+        var currentRetry = 0
+        var delay = initialDelay
+        
+        while (currentRetry < maxRetries) {
+            try {
+                val result = block()
+                if (result is ApiResult.Success) {
+                    return result
+                }
+                // Si es un error que no es rate limit, no reintentar
+                if (result is ApiResult.Error && result.error !is ApiError.RateLimited) {
+                    return result
+                }
+            } catch (e: RateLimitException) {
+                // Esperar y reintentar
+                if (currentRetry == maxRetries - 1) {
+                    return ApiResult.Error(ApiError.RateLimited(e.retryAfter))
+                }
+                delay(delay)
+                delay = (delay * 2).coerceAtMost(10000) // Max 10 segundos
+                currentRetry++
+            }
+        }
+        
+        return ApiResult.Error(ApiError.RateLimited(delay))
+    }
+    
+    private class RateLimitException(val retryAfter: Long) : Exception("Rate limited, retry after ${retryAfter}ms")
     
     private fun <T> handleApiError(response: Response<*>): ApiResult<T> {
         return when (response.code()) {
@@ -135,76 +178,85 @@ class MapRepositoryImpl(
             return ApiResult.Error(ApiError.InvalidApiKey)
         }
         
-        return try {
-            withTimeout(30000) { // 30 segundos timeout
-                val start = "${origen.longitud},${origen.latitud}"
-                val end = "${destino.longitud},${destino.latitud}"
+        return retryWithBackoff(maxRetries = 3, initialDelay = 1000) {
+            try {
+                withTimeout(30000) { // 30 segundos timeout
+                    val start = "${origen.longitud},${origen.latitud}"
+                    val end = "${destino.longitud},${destino.latitud}"
 
-                Log.d("MapRepository", "Calculando ruta: $start -> $end (modo: $modo)")
+                    Log.d("MapRepository", "Calculando ruta: $start -> $end (modo: $modo)")
 
-                val response = if (modo == "driving-car") {
-                    orsApi.getDrivingRoute(apiKey, start, end)
-                } else {
-                    orsApi.getWalkingRoute(apiKey, start, end)
-                }
-
-                when {
-                    !response.isSuccessful -> {
-                        handleApiError<Ruta>(response)
+                    val response = if (modo == "driving-car") {
+                        orsApi.getDrivingRoute(apiKey, start, end)
+                    } else {
+                        orsApi.getWalkingRoute(apiKey, start, end)
                     }
-                    response.body() == null -> {
-                        ApiResult.Error(ApiError.EmptyResponse)
-                    }
-                    response.body()!!.routes.isEmpty() -> {
-                        ApiResult.Error(ApiError.NotFound)
-                    }
-                    else -> {
-                        val routeResponse = response.body()!!
-                        val route = routeResponse.routes[0]
-                        
-                        // Validar polyline antes de decodificar
-                        if (route.geometry.isBlank()) {
-                            return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
-                        }
-                        
-                        val puntos = try {
-                            decodificarPolyline(route.geometry)
-                        } catch (e: Exception) {
-                            Log.e("MapRepository", "Error decoding polyline", e)
-                            return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
-                        }
 
-                        // Extraer y traducir instrucciones de los steps
-                        val instrucciones = route.segments.flatMap { segment ->
-                            segment.steps.map { step ->
-                                InstruccionNavegacion(
-                                    texto = InstructionTranslator.translate(step.instruction),
-                                    distancia = step.distance,
-                                    tipo = mapTypeToManiobra(step.type),
-                                    nombreCalle = step.name ?: ""
-                                )
+                    when {
+                        !response.isSuccessful -> {
+                            val error = handleApiError<Ruta>(response)
+                            if (error is ApiResult.Error && error.error is ApiError.RateLimited) {
+                                throw RateLimitException((error.error as ApiError.RateLimited).retryAfter)
                             }
+                            error
                         }
+                        response.body() == null -> {
+                            ApiResult.Error(ApiError.EmptyResponse)
+                        }
+                        response.body()!!.routes.isEmpty() -> {
+                            ApiResult.Error(ApiError.NotFound)
+                        }
+                        else -> {
+                            val routeResponse = response.body()!!
+                            val route = routeResponse.routes[0]
+                            
+                            // Validar polyline antes de decodificar
+                            if (route.geometry.isBlank()) {
+                                return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
+                            }
+                            
+                            val puntos = try {
+                                decodificarPolyline(route.geometry)
+                            } catch (e: Exception) {
+                                Log.e("MapRepository", "Error decoding polyline", e)
+                                return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
+                            }
 
-                        val ruta = Ruta(
-                            distanciaMetros = route.summary.distance,
-                            duracionSegundos = route.summary.duration,
-                            puntos = puntos,
-                            instrucciones = instrucciones
-                        )
-                        ApiResult.Success(ruta)
+                            // Extraer y traducir instrucciones de los steps
+                            val instrucciones = route.segments.flatMap { segment ->
+                                segment.steps.map { step ->
+                                    InstruccionNavegacion(
+                                        texto = InstructionTranslator.translate(step.instruction),
+                                        distancia = step.distance,
+                                        tipo = mapTypeToManiobra(step.type),
+                                        nombreCalle = step.name ?: ""
+                                    )
+                                }
+                            }
+
+                            val ruta = Ruta(
+                                distanciaMetros = route.summary.distance,
+                                duracionSegundos = route.summary.duration,
+                                puntos = puntos,
+                                instrucciones = instrucciones
+                            )
+                            ApiResult.Success(ruta)
+                        }
                     }
                 }
+            } catch (e: UnknownHostException) {
+                Log.e("MapRepository", "No internet connection", e)
+                ApiResult.Error(ApiError.NoInternet)
+            } catch (e: SocketTimeoutException) {
+                Log.e("MapRepository", "Request timeout", e)
+                ApiResult.Error(ApiError.Timeout)
+            } catch (e: RateLimitException) {
+                Log.e("MapRepository", "Rate limit exceeded", e)
+                throw e // Re-throw to trigger retry
+            } catch (e: Exception) {
+                Log.e("MapRepository", "Error calculating route", e)
+                ApiResult.Error(ApiError.Unknown(e))
             }
-        } catch (e: UnknownHostException) {
-            Log.e("MapRepository", "No internet connection", e)
-            ApiResult.Error(ApiError.NoInternet)
-        } catch (e: SocketTimeoutException) {
-            Log.e("MapRepository", "Request timeout", e)
-            ApiResult.Error(ApiError.Timeout)
-        } catch (e: Exception) {
-            Log.e("MapRepository", "Error calculating route", e)
-            ApiResult.Error(ApiError.Unknown(e))
         }
     }
 

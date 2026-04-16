@@ -1,4 +1,3 @@
-```
 # Compiled and build artifacts
 *.class
 *.o
@@ -23,4 +22,28 @@ node_modules/
 # Editors
 .vscode/
 .idea/
-```
+
+# Android specific - SENSITIVE FILES
+local.properties
+*.keystore
+*.jks
+*.apk
+*.aab
+*.ap_
+
+# Android debug database
+*.db-shm
+*.db-wal
+
+# Android build outputs
+app/build/
+app/release/
+app/debug/
+
+# Android captured images
+app/src/main/res/drawable-*/captured/
+
+# Android Studio
+.DS_Store
+.externalNativeBuild
+.cxx/
