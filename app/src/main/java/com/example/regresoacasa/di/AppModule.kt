@@ -18,6 +18,7 @@ import com.example.regresoacasa.domain.usecase.BuscarLugaresUseCase
 import com.example.regresoacasa.domain.usecase.CalcularRutaUseCase
 import com.example.regresoacasa.domain.usecase.GuardarFavoritoUseCase
 import com.example.regresoacasa.domain.usecase.ObtenerCasaUseCase
+import com.example.regresoacasa.domain.usecase.ObtenerDireccionUseCase
 import com.example.regresoacasa.domain.usecase.ObtenerFavoritosUseCase
 import com.example.regresoacasa.domain.usecase.ObtenerUbicacionUseCase
 
@@ -26,7 +27,7 @@ import com.example.regresoacasa.domain.usecase.ObtenerUbicacionUseCase
  */
 class AppModule private constructor(context: Context) {
 
-    private val appContext = context.applicationContext
+    val appContext = context.applicationContext
 
     // Migration from version 2 to 3 (add search_history table)
     private val MIGRATION_2_3 = object : Migration(2, 3) {
@@ -101,6 +102,10 @@ class AppModule private constructor(context: Context) {
 
     val obtenerUbicacionUseCase: ObtenerUbicacionUseCase by lazy {
         ObtenerUbicacionUseCase(mapRepository)
+    }
+
+    val obtenerDireccionUseCase: ObtenerDireccionUseCase by lazy {
+        ObtenerDireccionUseCase(mapRepository)
     }
 
     companion object {

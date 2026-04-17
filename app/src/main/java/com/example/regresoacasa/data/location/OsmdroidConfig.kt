@@ -2,6 +2,7 @@ package com.example.regresoacasa.data.location
 
 import android.content.Context
 import org.osmdroid.config.Configuration
+import java.io.File
 
 /**
  * Configuración optimizada para OSMDroid
@@ -19,11 +20,10 @@ object OsmdroidConfig {
             // Caché de tiles: 500MB máximo
             tileFileSystemCacheMaxBytes = 500L * 1024 * 1024
             
-            // Habilitar caché
-            tileSourcesCacheEnabled = true
-            
-            // Usar almacenamiento interno para caché
-            setTileFileSystemCache("/tiles")
+            // Directorio de caché
+            val cacheDir = File(context.cacheDir, "osmdroid/tiles")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+            osmdroidTileCache = cacheDir
         }
     }
     
@@ -32,11 +32,10 @@ object OsmdroidConfig {
      */
     fun clearCache(context: Context) {
         try {
-            val cacheDir = android.os.FileUtils.buildExternalDirectoriesAppDataDirectory(
-                context, 
-                "osmdroid"
-            )
-            cacheDir?.deleteRecursively()
+            val cacheDir = File(context.cacheDir, "osmdroid")
+            if (cacheDir.exists()) {
+                cacheDir.deleteRecursively()
+            }
         } catch (e: Exception) {
             android.util.Log.e("OsmdroidConfig", "Error limpiando caché: ${e.message}")
         }

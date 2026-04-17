@@ -32,7 +32,7 @@
     <uses-feature android:name="android.hardware.location.network" android:required="false" />
 
     <application
-        android:name=".RegresoACasaApp"
+        android:name="com.example.regresoacasa.RegresoACasaApp"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -43,7 +43,7 @@
         android:theme="@style/Theme.RegresoACasa"
         android:usesCleartextTraffic="true">
         <activity
-            android:name=".MainActivity"
+            android:name="com.example.regresoacasa.MainActivity"
             android:exported="true"
             android:label="@string/app_name"
             android:theme="@style/Theme.RegresoACasa">
@@ -56,7 +56,7 @@
         
         <!-- Foreground Service para tracking de ubicación en background -->
         <service
-            android:name=".data.location.LocationForegroundService"
+            android:name="com.example.regresoacasa.data.location.LocationForegroundService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location"

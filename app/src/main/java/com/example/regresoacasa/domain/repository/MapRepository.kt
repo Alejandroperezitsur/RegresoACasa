@@ -17,6 +17,7 @@ interface MapRepository {
 
     // Búsqueda
     suspend fun buscarLugares(query: String): ApiResult<List<Lugar>>
+    suspend fun obtenerDireccion(lat: Double, lon: Double): ApiResult<Lugar>
 
     // Rutas
     suspend fun calcularRuta(

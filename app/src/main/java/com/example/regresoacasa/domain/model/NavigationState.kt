@@ -30,10 +30,10 @@ data class NavigationState(
     val lastRecalculation: Long = 0,
     
     // Campos nuevos para turn-by-turn navigation
-    val currentInstruction: InstruccionNavegacion? = null,
+    val currentInstruction: Instruccion? = null,
     val distanceToNextTurn: Double = 0.0,
     val progressToNextTurn: Float = 0f,
-    val instructions: List<InstruccionNavegacion> = emptyList(),
+    val instructions: List<Instruccion> = emptyList(),
     val currentInstructionIndex: Int = 0,
     
     // Campos para detección de llegada

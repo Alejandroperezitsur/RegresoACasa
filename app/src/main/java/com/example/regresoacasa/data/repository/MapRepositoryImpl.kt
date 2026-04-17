@@ -25,6 +25,7 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -87,10 +88,13 @@ class MapRepositoryImpl(
                         }
                         else -> {
                             val results = response.body()!!.map { result ->
+                                val nombrePrincipal = result.displayName?.substringBefore(",") ?: "Sin nombre"
+                                val direccionCompleta = result.displayName ?: "Dirección no disponible"
+                                
                                 Lugar(
                                     id = result.placeId?.toString() ?: "",
-                                    nombre = result.displayName?.substringBefore(",") ?: "",
-                                    direccion = result.displayName ?: "",
+                                    nombre = nombrePrincipal,
+                                    direccion = direccionCompleta,
                                     latitud = result.lat?.toDoubleOrNull() ?: 0.0,
                                     longitud = result.lon?.toDoubleOrNull() ?: 0.0
                                 )
@@ -116,6 +120,28 @@ class MapRepositoryImpl(
                 Log.e("MapRepository", "Error searching places", e)
                 ApiResult.Error(ApiError.Unknown(e))
             }
+        }
+    }
+
+    override suspend fun obtenerDireccion(lat: Double, lon: Double): ApiResult<Lugar> {
+        return try {
+            val response = nominatimApi.reverseGeocode(lat, lon)
+            if (response.isSuccessful && response.body() != null) {
+                val result = response.body()!!
+                ApiResult.Success(
+                    Lugar(
+                        id = result.placeId?.toString() ?: "",
+                        nombre = "Ubicación seleccionada",
+                        direccion = result.displayName ?: "Dirección desconocida",
+                        latitud = lat,
+                        longitud = lon
+                    )
+                )
+            } else {
+                ApiResult.Error(ApiError.NotFound)
+            }
+        } catch (e: Exception) {
+            ApiResult.Error(ApiError.Unknown(e))
         }
     }
     
@@ -173,8 +199,8 @@ class MapRepositoryImpl(
         modo: String
     ): ApiResult<Ruta> {
         // Validar API key antes de hacer la llamada
-        if (apiKey.isBlank()) {
-            Log.e("MapRepository", "ORS API key is missing")
+        if (apiKey.isBlank() || apiKey.length < 60) {
+            Log.e("MapRepository", "ORS API key is missing or invalid (too short: ${apiKey.length})")
             return ApiResult.Error(ApiError.InvalidApiKey)
         }
         
@@ -203,40 +229,44 @@ class MapRepositoryImpl(
                         response.body() == null -> {
                             ApiResult.Error(ApiError.EmptyResponse)
                         }
-                        response.body()!!.routes.isEmpty() -> {
+                        response.body()!!.features.isEmpty() -> {
                             ApiResult.Error(ApiError.NotFound)
                         }
                         else -> {
                             val routeResponse = response.body()!!
-                            val route = routeResponse.routes[0]
+                            val feature = routeResponse.features[0]
+                            val geometry = feature.geometry
                             
-                            // Validar polyline antes de decodificar
-                            if (route.geometry.isBlank()) {
+                            // Validar que tengamos coordenadas
+                            if (geometry.coordinates.isEmpty()) {
                                 return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
                             }
                             
-                            val puntos = try {
-                                decodificarPolyline(route.geometry)
-                            } catch (e: Exception) {
-                                Log.e("MapRepository", "Error decoding polyline", e)
-                                return@withTimeout ApiResult.Error(ApiError.InvalidResponse)
+                            // En GeoJSON las coordenadas ya vienen como una lista de [lon, lat]
+                            val puntos = geometry.coordinates.map { 
+                                PuntoRuta(it[1], it[0]) 
                             }
 
-                            // Extraer y traducir instrucciones de los steps
-                            val instrucciones = route.segments.flatMap { segment ->
+                            // Extraer y traducir instrucciones de los steps de las properties del feature
+                            val instrucciones = feature.properties.segments.flatMap { segment ->
                                 segment.steps.map { step ->
-                                    InstruccionNavegacion(
+                                    com.example.regresoacasa.domain.model.Instruccion(
                                         texto = InstructionTranslator.translate(step.instruction),
                                         distancia = step.distance,
-                                        tipo = mapTypeToManiobra(step.type),
-                                        nombreCalle = step.name ?: ""
+                                        tipo = mapTypeToManiobra(step.type)
                                     )
                                 }
                             }
 
+                            // LOG para depuración
+                            Log.d("MapRepository", "Ruta procesada con ${puntos.size} puntos e ${instrucciones.size} instrucciones")
+                            if (puntos.isNotEmpty()) {
+                                Log.d("MapRepository", "Primer punto: ${puntos[0].latitud}, ${puntos[0].longitud}")
+                            }
+
                             val ruta = Ruta(
-                                distanciaMetros = route.summary.distance,
-                                duracionSegundos = route.summary.duration,
+                                distanciaMetros = feature.properties.summary.distance,
+                                duracionSegundos = feature.properties.summary.duration,
                                 puntos = puntos,
                                 instrucciones = instrucciones
                             )
@@ -277,19 +307,21 @@ class MapRepositoryImpl(
                 task.addOnSuccessListener { location ->
                     if (location != null) {
                         continuation.resume(
-                            UbicacionUsuario(
-                                latitud = location.latitude,
-                                longitud = location.longitude,
-                                precision = location.accuracy
+                            Result.success(
+                                UbicacionUsuario(
+                                    latitud = location.latitude,
+                                    longitud = location.longitude,
+                                    precision = location.accuracy
+                                )
                             )
                         )
                     } else {
-                        continuation.resumeWithException(Exception("No se pudo obtener ubicación"))
+                        continuation.resume(Result.failure(Exception("No se pudo obtener ubicación")))
                     }
                 }
 
                 task.addOnFailureListener { exception ->
-                    continuation.resumeWithException(exception)
+                    continuation.resume(Result.failure(exception))
                 }
 
                 continuation.invokeOnCancellation {
@@ -374,16 +406,20 @@ class MapRepositoryImpl(
      */
     private fun mapTypeToManiobra(type: Int): TipoManiobra {
         return when (type) {
-            0 -> TipoManiobra.CONTINUA_RECTO  // Continue straight
-            1 -> TipoManiobra.GIRA_DERECHA     // Turn slight right
-            2 -> TipoManiobra.GIRA_IZQUIERDA   // Turn slight left
-            3 -> TipoManiobra.GIRA_DERECHA     // Turn right
-            4 -> TipoManiobra.GIRA_IZQUIERDA   // Turn left
-            5 -> TipoManiobra.GIRA_DERECHA     // Turn sharp right
-            6 -> TipoManiobra.GIRA_IZQUIERDA   // Turn sharp left
-            7 -> TipoManiobra.MEDIA_VUELTA     // U-turn
-            8, 9 -> TipoManiobra.ROTONDA       // Roundabout (enter/exit)
-            10 -> TipoManiobra.DESTINO         // Arrive at destination
+            0 -> TipoManiobra.CONTINUA_RECTO  // Left
+            1 -> TipoManiobra.GIRA_DERECHA     // Right
+            2 -> TipoManiobra.GIRA_IZQUIERDA   // Sharp left
+            3 -> TipoManiobra.GIRA_DERECHA     // Sharp right
+            4 -> TipoManiobra.GIRA_IZQUIERDA   // Slight left
+            5 -> TipoManiobra.GIRA_DERECHA     // Slight right
+            6 -> TipoManiobra.CONTINUA_RECTO   // Straight
+            7 -> TipoManiobra.ROTONDA          // Enter roundabout
+            8 -> TipoManiobra.ROTONDA          // Exit roundabout
+            9 -> TipoManiobra.MEDIA_VUELTA     // U-turn
+            10 -> TipoManiobra.DESTINO         // Goal
+            11 -> TipoManiobra.CONTINUA_RECTO  // Depart
+            12 -> TipoManiobra.CONTINUA_RECTO  // Keep left
+            13 -> TipoManiobra.CONTINUA_RECTO  // Keep right
             else -> TipoManiobra.CONTINUA_RECTO
         }
     }

@@ -9,24 +9,22 @@ import retrofit2.http.Query
 
 interface OrsApiService {
 
-    @Headers(
-        "Accept: application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8"
-    )
+    @Headers("Accept: application/geo+json")
     @GET("v2/directions/foot-walking")
     suspend fun getWalkingRoute(
         @Query("api_key") apiKey: String,
         @Query("start") start: String,
-        @Query("end") end: String
+        @Query("end") end: String,
+        @Query("language") language: String = "es"
     ): Response<RouteResponse>
 
-    @Headers(
-        "Accept: application/json, application/geo+json, application/gpx+xml, img/png; charset=utf-8"
-    )
+    @Headers("Accept: application/geo+json")
     @GET("v2/directions/driving-car")
     suspend fun getDrivingRoute(
         @Query("api_key") apiKey: String,
         @Query("start") start: String,
-        @Query("end") end: String
+        @Query("end") end: String,
+        @Query("language") language: String = "es"
     ): Response<RouteResponse>
 
     @Headers(

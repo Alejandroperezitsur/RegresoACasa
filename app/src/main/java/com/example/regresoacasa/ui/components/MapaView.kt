@@ -11,7 +11,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material3.Text
+import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -48,7 +49,9 @@ fun MapaView(
     ruta: List<PuntoRuta>?,
     modifier: Modifier = Modifier,
     isFollowingUser: Boolean = true,
-    onFollowUserToggle: () -> Unit = {}
+    isSelectingOnMap: Boolean = false,
+    onFollowUserToggle: () -> Unit = {},
+    onMapMove: (Double, Double) -> Unit = { _, _ -> }
 ) {
     val context = LocalContext.current
 
@@ -57,6 +60,26 @@ fun MapaView(
     var markerUsuario by remember { mutableStateOf<Marker?>(null) }
     var markerDestino by remember { mutableStateOf<Marker?>(null) }
     var polylineRuta by remember { mutableStateOf<Polyline?>(null) }
+
+    val mapListener = remember {
+        object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                event?.source?.let { map ->
+                    val center = map.mapCenter
+                    onMapMove(center.latitude, center.longitude)
+                }
+                return true
+            }
+
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                event?.source?.let { map ->
+                    val center = map.mapCenter
+                    onMapMove(center.latitude, center.longitude)
+                }
+                return true
+            }
+        }
+    }
 
     DisposableEffect(context) {
         try {
@@ -74,9 +97,9 @@ fun MapaView(
         }
     }
 
-    // Auto-center when following user
-    LaunchedEffect(ubicacion, isFollowingUser) {
-        if (isFollowingUser && ubicacion != null && mapViewInstance != null) {
+    // Auto-center when following user (NOT when selecting on map)
+    LaunchedEffect(ubicacion, isFollowingUser, isSelectingOnMap) {
+        if (isFollowingUser && !isSelectingOnMap && ubicacion != null && mapViewInstance != null) {
             val geoPoint = GeoPoint(ubicacion.latitud, ubicacion.longitud)
             mapViewInstance?.controller?.animateTo(geoPoint)
         }
@@ -91,6 +114,7 @@ fun MapaView(
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
                         controller.setZoom(15.0)
+                        addMapListener(mapListener)
 
                         try {
                             val compass = CompassOverlay(ctx, this)
@@ -151,16 +175,29 @@ fun MapaView(
                     ruta?.let { puntos ->
                         try {
                             if (puntos.isNotEmpty()) {
-                                val polyline = Polyline().apply {
+                                Log.d(TAG, "Dibujando polilínea con ${puntos.size} puntos")
+                                val polyline = Polyline(mapView).apply {
                                     setPoints(puntos.map { GeoPoint(it.latitud, it.longitud) })
-                                    outlinePaint.strokeWidth = 12f
+                                    outlinePaint.strokeWidth = 14f
                                     outlinePaint.color = Color.parseColor("#1565C0")
+                                    // Añadir un borde blanco para mejor visibilidad
+                                    outlinePaint.strokeCap = Paint.Cap.ROUND
+                                    outlinePaint.strokeJoin = Paint.Join.ROUND
                                 }
                                 mapView.overlays.add(polyline)
                                 polylineRuta = polyline
+                                
+                                // Si es la primera vez que se carga la ruta, hacer zoom para que quepa toda
+                                if (!isFollowingUser && puntos.isNotEmpty()) {
+                                    try {
+                                        mapView.zoomToBoundingBox(polyline.bounds, true, 100)
+                                    } catch (e: Exception) {
+                                        Log.e(TAG, "Error haciendo zoom a la ruta", e)
+                                    }
+                                }
                             }
                         } catch (e: Exception) {
-                            Log.w(TAG, "Error creando ruta", e)
+                            Log.e(TAG, "Error creando ruta", e)
                         }
                     }
 

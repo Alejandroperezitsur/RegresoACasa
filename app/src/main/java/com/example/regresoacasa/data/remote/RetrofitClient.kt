@@ -30,7 +30,12 @@ object RetrofitClient {
             .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
-                    .header("Accept", "application/json")
+                    // Dejamos que el service defina el Accept header si existe
+                    .apply {
+                        if (chain.request().header("Accept") == null) {
+                            header("Accept", "application/json")
+                        }
+                    }
                     .header("Accept-Charset", "utf-8")
                     .build()
                 chain.proceed(request)
@@ -53,9 +58,10 @@ object RetrofitClient {
         val builder = OkHttpClient.Builder()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
-                    .header("User-Agent", "RegresoACasa/1.0 (Android App; contact@example.com)")
+                    .header("User-Agent", "RegresoACasaApp_v1.0_${System.currentTimeMillis()}_Dev (contact: alex.dev.mex@gmail.com)")
                     .header("Accept", "application/json")
                     .header("Accept-Language", "es-MX,es")
+                    .header("Connection", "close") // Evitar mantener conexiones innecesarias
                     .build()
                 chain.proceed(request)
             }

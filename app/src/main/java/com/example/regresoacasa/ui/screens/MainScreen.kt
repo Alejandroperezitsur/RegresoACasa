@@ -21,8 +21,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -33,9 +36,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,6 +66,30 @@ fun MainScreen(
     hasLocationPermission: Boolean
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("¿Cambiar de casa?") },
+            text = { Text("Se eliminará la ubicación actual de tu casa para que puedas configurar una nueva.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.eliminarCasa()
+                        showDeleteConfirm = false
+                    }
+                ) {
+                    Text("Eliminar", color = Color(0xFFC62828))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Mapa
@@ -67,25 +98,71 @@ fun MainScreen(
             destino = uiState.casa,
             ruta = uiState.rutaActual?.puntos,
             isFollowingUser = uiState.navigationState.isFollowingUser,
-            onFollowUserToggle = { viewModel.toggleFollowUser() }
+            isSelectingOnMap = uiState.isSelectingOnMap,
+            onFollowUserToggle = { viewModel.toggleFollowUser() },
+            onMapMove = { lat, lon -> viewModel.onMapMove(lat, lon) }
         )
+
+        // Mira/Cursor central cuando se selecciona en mapa
+        if (uiState.isSelectingOnMap) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = 56.dp), // Ajuste por si hay UI inferior
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.LocationOn,
+                    contentDescription = null,
+                    tint = Color(0xFFC62828),
+                    modifier = Modifier.size(48.dp)
+                )
+            }
+        }
 
         // Header superior
-        HeaderSection(
-            casa = uiState.casa,
-            modifier = Modifier.align(Alignment.TopCenter)
-        )
+        if (!uiState.isSelectingOnMap) {
+            HeaderSection(
+                casa = uiState.casa,
+                onEliminarCasa = { showDeleteConfirm = true },
+                modifier = Modifier.align(Alignment.TopCenter)
+            )
+        } else {
+            // Header de selección
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF1565C0))
+                    .padding(16.dp)
+                    .align(Alignment.TopCenter)
+            ) {
+                Text(
+                    text = "Mueve el mapa para elegir",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
 
-        // Botones flotantes
-        FloatingButtons(
-            tieneCasa = uiState.casa != null,
-            hasLocationPermission = hasLocationPermission,
-            onRequestPermission = onRequestPermission,
-            onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
-            onBuscarCasa = onBuscarCasa,
-            onIrACasa = onIrACasa,
-            modifier = Modifier.align(Alignment.BottomCenter)
-        )
+        // Botones flotantes o controles de selección
+        if (!uiState.isSelectingOnMap) {
+            FloatingButtons(
+                tieneCasa = uiState.casa != null,
+                hasLocationPermission = hasLocationPermission,
+                onRequestPermission = onRequestPermission,
+                onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
+                onBuscarCasa = onBuscarCasa,
+                onIrACasa = onIrACasa,
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        } else {
+            SelectionControls(
+                onConfirmar = { viewModel.confirmarSeleccionMapa() },
+                onCancelar = { viewModel.cancelarSeleccionMapa() },
+                modifier = Modifier.align(Alignment.BottomCenter)
+            )
+        }
 
         // Indicadores de carga
         if (uiState.estaCargandoUbicacion || uiState.estaCalculandoRuta) {
@@ -100,8 +177,9 @@ fun MainScreen(
 
         // Mensaje de error
         if (uiState.uiState is UiState.Error) {
+            val error = uiState.uiState as UiState.Error
             ErrorCard(
-                mensaje = uiState.error ?: "Error desconocido",
+                mensaje = error.message,
                 onDismiss = { viewModel.limpiarError() },
                 modifier = Modifier.align(Alignment.Center)
             )
@@ -112,12 +190,13 @@ fun MainScreen(
 @Composable
 private fun HeaderSection(
     casa: LugarFavorito?,
+    onEliminarCasa: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(120.dp)
+            .height(130.dp)
             .background(
                 brush = Brush.verticalGradient(
                     colors = listOf(
@@ -128,31 +207,50 @@ private fun HeaderSection(
                 )
             )
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 20.dp, vertical = 20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
         ) {
-            Text(
-                text = "Regreso a Casa",
-                style = MaterialTheme.typography.headlineSmall.copy(
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Regreso a Casa",
+                    style = MaterialTheme.typography.headlineSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
                 )
-            )
+                if (casa != null) {
+                    Text(
+                        text = casa.direccion,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.9f),
+                        maxLines = 1
+                    )
+                } else {
+                    Text(
+                        text = "Configura tu casa para empezar",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color.White.copy(alpha = 0.8f)
+                    )
+                }
+            }
+
             if (casa != null) {
-                Text(
-                    text = casa.direccion,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.9f),
-                    maxLines = 1
-                )
-            } else {
-                Text(
-                    text = "Configura tu casa para empezar",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color.White.copy(alpha = 0.8f)
-                )
+                IconButton(
+                    onClick = onEliminarCasa,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Settings,
+                        contentDescription = "Configurar",
+                        tint = Color.White
+                    )
+                }
             }
         }
     }
@@ -237,6 +335,37 @@ private fun FloatingButtons(
                     )
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun SelectionControls(
+    onConfirmar: () -> Unit,
+    onCancelar: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(24.dp),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        Button(
+            onClick = onCancelar,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.LightGray)
+        ) {
+            Text("Cancelar", color = Color.Black)
+        }
+        
+        Button(
+            onClick = onConfirmar,
+            modifier = Modifier.weight(1f),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1565C0))
+        ) {
+            Text("Confirmar", color = Color.White)
         }
     }
 }

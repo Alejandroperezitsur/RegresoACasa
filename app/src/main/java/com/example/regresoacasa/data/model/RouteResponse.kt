@@ -2,20 +2,35 @@ package com.example.regresoacasa.data.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * Representa la respuesta de OpenRouteService en formato GeoJSON (FeatureCollection).
+ */
 data class RouteResponse(
-    @SerializedName("routes")
-    val routes: List<Route>,
+    @SerializedName("features")
+    val features: List<RouteFeature>,
     @SerializedName("bbox")
     val bbox: List<Double>?
 )
 
-data class Route(
+data class RouteFeature(
+    @SerializedName("geometry")
+    val geometry: GeometryData,
+    @SerializedName("properties")
+    val properties: RouteProperties
+)
+
+data class GeometryData(
+    @SerializedName("coordinates")
+    val coordinates: List<List<Double>>,
+    @SerializedName("type")
+    val type: String
+)
+
+data class RouteProperties(
     @SerializedName("summary")
     val summary: RouteSummary,
     @SerializedName("segments")
-    val segments: List<Segment>,
-    @SerializedName("geometry")
-    val geometry: String
+    val segments: List<Segment>
 )
 
 data class RouteSummary(
@@ -47,24 +62,27 @@ data class Step(
     val type: Int
 )
 
+/**
+ * Estructura para Geocoding (también usa Features pero es distinta a Directions)
+ */
 data class GeocodingResponse(
     @SerializedName("features")
-    val features: List<Feature>
+    val features: List<GeocodingFeature>
 )
 
-data class Feature(
+data class GeocodingFeature(
     @SerializedName("geometry")
-    val geometry: Geometry,
+    val geometry: PointGeometry,
     @SerializedName("properties")
-    val properties: Properties
+    val properties: GeocodingProperties
 )
 
-data class Geometry(
+data class PointGeometry(
     @SerializedName("coordinates")
     val coordinates: List<Double>
 )
 
-data class Properties(
+data class GeocodingProperties(
     @SerializedName("name")
     val name: String?,
     @SerializedName("label")

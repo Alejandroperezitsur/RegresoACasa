@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -88,8 +89,8 @@ class SafeReturnPreferences(private val context: Context) {
      * Verifica si hay una sesión activa válida (< 2 horas)
      */
     suspend fun hasValidSession(): Boolean {
-        val session = sessionFlow.map { it }.toString()
-        return session.contains("isActive=true")
+        val session = sessionFlow.firstOrNull()
+        return session?.isValid() ?: false
     }
 }
 

@@ -33,7 +33,7 @@ object SnapToRoute {
         
         // Encontrar el punto más cercano en la polilínea
         var minDistance = Double.MAX_VALUE
-        var closestPoint = ubicacion
+        var closestPoint: PuntoRuta? = null
         
         // Revisar cada segmento de la ruta
         for (i in 0 until ruta.puntos.size - 1) {
@@ -53,7 +53,7 @@ object SnapToRoute {
         }
         
         // Solo hacer snap si está dentro del umbral
-        return if (minDistance <= maxDistance) {
+        return if (minDistance <= maxDistance && closestPoint != null) {
             UbicacionUsuario(
                 latitud = closestPoint.latitud,
                 longitud = closestPoint.longitud,

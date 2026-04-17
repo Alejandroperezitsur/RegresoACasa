@@ -41,13 +41,13 @@ suspend fun <T> retryIO(
 /**
  * Decodifica un polyline de forma segura, evitando crashes por datos malformed
  * @param encoded String codificado en formato polyline
- * @return Lista de LatLng o lista vacía si hay error
+ * @return Lista de UbicacionUsuario o lista vacía si hay error
  */
-fun decodePolylineSafe(encoded: String?): List<com.google.android.gms.maps.model.LatLng> {
+fun decodePolylineSafe(encoded: String?): List<com.example.regresoacasa.domain.model.UbicacionUsuario> {
     if (encoded.isNullOrBlank()) return emptyList()
     
     return try {
-        val path = ArrayList<com.google.android.gms.maps.model.LatLng>()
+        val path = ArrayList<com.example.regresoacasa.domain.model.UbicacionUsuario>()
         var index = 0
         val len = encoded.length
         var lat = 0
@@ -84,7 +84,7 @@ fun decodePolylineSafe(encoded: String?): List<com.google.android.gms.maps.model
             
             // Validar rangos geográficos
             if (latitude in -90.0..90.0 && longitude in -180.0..180.0) {
-                path.add(com.google.android.gms.maps.model.LatLng(latitude, longitude))
+                path.add(com.example.regresoacasa.domain.model.UbicacionUsuario(latitude, longitude))
             }
         }
         path
@@ -108,19 +108,24 @@ object InstructionTranslator {
                 text.replace("Turn right", "Gira a la derecha", ignoreCase = true)
             text.contains("Turn left", ignoreCase = true) -> 
                 text.replace("Turn left", "Gira a la izquierda", ignoreCase = true)
-            text.contains("Head straight", ignoreCase = true) || 
+            text.contains("Head", ignoreCase = true) && text.contains("on", ignoreCase = true) -> {
+                text.replace("Head", "Dirígete al", ignoreCase = true)
+                    .replace("north", "norte", ignoreCase = true)
+                    .replace("south", "sur", ignoreCase = true)
+                    .replace("east", "este", ignoreCase = true)
+                    .replace("west", "oeste", ignoreCase = true)
+                    .replace("on", "por", ignoreCase = true)
+            }
             text.contains("Continue straight", ignoreCase = true) -> 
-                text.replace(Regex("(Head|Continue) straight", RegexOption.IGNORE_CASE), "Continúa recto")
+                text.replace("Continue straight", "Continúa recto", ignoreCase = true)
             text.contains("Arrive at", ignoreCase = true) -> 
-                text.replace(Regex("Arrive at.*", RegexOption.IGNORE_CASE), "Has llegado a tu destino")
-            text.contains("You have arrived", ignoreCase = true) -> 
-                "Has llegado"
+                "Has llegado a tu destino"
             text.contains("Keep right", ignoreCase = true) -> 
-                text.replace("Keep right", "Mantente a la derecha", ignoreCase = true)
+                "Mantente a la derecha"
             text.contains("Keep left", ignoreCase = true) -> 
-                text.replace("Keep left", "Mantente a la izquierda", ignoreCase = true)
-            text.contains("U-turn", ignoreCase = true) -> 
-                text.replace("U-turn", "Giro en U", ignoreCase = true)
+                "Mantente a la izquierda"
+            text.contains("Take the", ignoreCase = true) && text.contains("exit", ignoreCase = true) ->
+                "Toma la salida"
             else -> text
         }
     }

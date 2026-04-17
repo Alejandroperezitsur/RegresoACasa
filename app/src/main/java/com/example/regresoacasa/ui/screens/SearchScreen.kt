@@ -1,5 +1,6 @@
 package com.example.regresoacasa.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -93,6 +95,32 @@ fun SearchScreen(
                     focusedLabelColor = Color(0xFF1565C0)
                 )
             )
+
+            // Opción Seleccionar en el mapa
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { viewModel.iniciarSeleccionMapa() },
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD))
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Map,
+                        contentDescription = null,
+                        tint = Color(0xFF1565C0)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        "Seleccionar ubicación en el mapa",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF1565C0)
+                    )
+                }
+            }
 
             // Indicador de búsqueda
             if (uiState.estaBuscando) {

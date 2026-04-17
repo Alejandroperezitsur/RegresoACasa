@@ -3,7 +3,8 @@ import java.util.Properties
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
-    id("com.google.devtools.ksp") version "1.9.24-1.0.20"
+    id("com.google.devtools.ksp") version "2.0.21-1.0.27"
+    alias(libs.plugins.kotlin.android)
 }
 
 android {
@@ -63,6 +64,9 @@ android {
         compose = true
         buildConfig = true
     }
+    kotlinOptions {
+        jvmTarget = "11"
+    }
 }
 
 dependencies {
@@ -86,6 +90,8 @@ dependencies {
     implementation(libs.accompanist.permissions)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    implementation(libs.androidx.datastore.preferences)
+    implementation(libs.androidx.compose.material.icons.extended)
     ksp("androidx.room:room-compiler:2.6.1")
     implementation(libs.kotlinx.coroutines.play.services)
     testImplementation(libs.junit)

@@ -36,11 +36,29 @@ sealed class NavigationUiState {
 }
 
 enum class ErrorType {
+    // Errores de red
     NO_INTERNET,
-    GPS_DISABLED,
-    API_ERROR,
     TIMEOUT,
-    UNKNOWN
+    
+    // Errores de API
+    API_ERROR,
+    API_KEY_INVALID,
+    SERVER_ERROR,
+    RATE_LIMITED,
+    
+    // Errores de ubicación
+    GPS_ERROR,
+    GPS_LOST,
+    LOCATION_PERMISSION_DENIED,
+    GPS_DISABLED,
+    
+    // Errores de ruta
+    NO_ROUTE,
+    ROUTE_CALCULATION_FAILED,
+    
+    // Errores generales
+    UNKNOWN,
+    DATABASE_ERROR
 }
 
 /**
@@ -61,6 +79,8 @@ data class MainUiState(
     val busqueda: String = "",
     val resultadosBusqueda: List<Lugar> = emptyList(),
     val lugarSeleccionado: Lugar? = null,
+    val mapCenterUbicacion: UbicacionUsuario? = null,
+    val isSelectingOnMap: Boolean = false,
     
     // Flags
     val estaCargandoUbicacion: Boolean = false,

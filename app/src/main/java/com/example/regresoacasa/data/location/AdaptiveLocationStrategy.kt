@@ -3,12 +3,14 @@ package com.example.regresoacasa.data.location
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Looper
 import com.google.android.gms.location.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.tasks.await
 import kotlin.math.abs
 
 /**
@@ -63,7 +65,7 @@ class AdaptiveLocationStrategy(private val context: Context) {
     @SuppressLint("MissingPermission")
     fun getLocationUpdates(speedMetersPerSecond: Float = 0f): Flow<Location> = callbackFlow {
         if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) 
-            != Manifest.permission.GRANTED) {
+            != PackageManager.PERMISSION_GRANTED) {
             close()
             return@callbackFlow
         }
@@ -96,9 +98,4 @@ class AdaptiveLocationStrategy(private val context: Context) {
             null
         }
     }
-}
-
-// Extensión para convertir Task a suspend function
-suspend fun <T> com.google.android.gms.tasks.Task<T>.await(): T {
-    return kotlinx.coroutines.tasks.await(this)
 }

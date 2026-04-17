@@ -35,6 +35,12 @@ import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 import com.google.accompanist.permissions.shouldShowRationale
 
+import com.google.accompanist.permissions.MultiplePermissionsState
+import com.google.accompanist.permissions.PermissionStatus
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import com.google.accompanist.permissions.shouldShowRationale
+
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun LocationPermissionHandler(
@@ -50,22 +56,7 @@ fun LocationPermissionHandler(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-    ) { results ->
-        // Callback cuando el usuario responde al diálogo de permisos
-        val allGranted = results.values.all { it }
-        if (allGranted) {
-            onPermissionGranted()
-        } else {
-            // Verificar si el usuario seleccionó "No volver a preguntar"
-            val permanentlyDenied = locationPermissionsState.permissions.any { 
-                !it.status.isGranted && !it.status.shouldShowRationale
-            }
-            if (permanentlyDenied) {
-                showSettingsDialog = true
-            }
-            onPermissionDenied()
-        }
-    }
+    )
     
     // Verificar permisos al iniciar y cuando el lifecycle cambia
     val lifecycleOwner: LifecycleOwner = LocalLifecycleOwner.current
@@ -153,20 +144,7 @@ fun rememberLocationPermissionState(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-    ) { results ->
-        val allGranted = results.values.all { it }
-        if (allGranted) {
-            onPermissionGranted()
-        } else {
-            val permanentlyDenied = permissionState.permissions.any { 
-                !it.status.isGranted && !it.status.shouldShowRationale
-            }
-            if (permanentlyDenied) {
-                showSettingsDialog = true
-            }
-            onPermissionDenied()
-        }
-    }
+    )
     
     // Diálogo de Settings
     if (showSettingsDialog) {

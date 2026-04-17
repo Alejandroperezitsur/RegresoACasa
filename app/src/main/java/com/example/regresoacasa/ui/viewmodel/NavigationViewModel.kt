@@ -16,6 +16,7 @@ import com.example.regresoacasa.data.location.LocationFilter
 import com.example.regresoacasa.data.location.LocationForegroundService
 import com.example.regresoacasa.domain.utils.SnapToRoute
 import com.example.regresoacasa.domain.usecase.GuardarFavoritoUseCase
+import com.example.regresoacasa.domain.usecase.ObtenerDireccionUseCase
 import com.example.regresoacasa.ui.state.ErrorType
 import com.example.regresoacasa.ui.state.MainUiState
 import com.example.regresoacasa.ui.state.NavigationUiState
@@ -29,7 +30,12 @@ import com.example.regresoacasa.data.location.BatteryMode
 import com.example.regresoacasa.data.safety.SafeReturnPreferences
 import com.example.regresoacasa.data.safety.SafeReturnSession
 import com.example.regresoacasa.utils.SafeHaptics
+import android.util.Log
 import android.content.Context
+import kotlinx.coroutines.flow.first
+import com.example.regresoacasa.domain.model.Instruccion
+import com.example.regresoacasa.domain.model.TipoManiobra
+import com.example.regresoacasa.domain.model.UbicacionUsuario as PuntoRutaAlias
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import kotlinx.coroutines.FlowPreview
@@ -66,7 +72,6 @@ class NavigationViewModel(
     private var searchJob: Job? = null
     private var locationTrackingJob: Job? = null
     private var routeCalculationJob: Job? = null
-    private var batteryMonitoringJob: Job? = null
     private val routeMutex = Mutex()
     
     // Filtros de precisión GPS y transiciones suaves (Hardening)
@@ -97,6 +102,10 @@ class NavigationViewModel(
     
     private val MIN_RECALCULATION_INTERVAL = 10000L // 10 segundos mínimo entre recálculos
 
+    // TTS Manager para instrucciones por voz
+    private var ttsManager: com.example.regresoacasa.utils.TtsManager? = null
+    private var lastInstructionSpoken: String? = null
+
     init {
         cargarCasa()
         setupSearchDebounce()
@@ -113,6 +122,7 @@ class NavigationViewModel(
         batteryLevelListener = BatteryLevelListener(context)
         safeReturnPreferences = SafeReturnPreferences(context)
         safeHaptics = SafeHaptics(context)
+        ttsManager = com.example.regresoacasa.utils.TtsManager(context)
         setupBatteryMonitoring()
     }
     
@@ -202,7 +212,7 @@ class NavigationViewModel(
 
     private fun setupSearchDebounce() {
         _searchQuery
-            .debounce(400)
+            .debounce(1000)
             .onEach { query ->
                 if (query.length >= 3) {
                     buscarLugares(query)
@@ -240,7 +250,6 @@ class NavigationViewModel(
                         is com.example.regresoacasa.domain.model.ApiResult.Error -> {
                             _uiState.update {
                                 it.copy(
-                                    error = result.error.message,
                                     estaBuscando = false,
                                     uiState = UiState.Error(result.error.message)
                                 )
@@ -251,7 +260,6 @@ class NavigationViewModel(
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
-                        error = "Error de red: ${e.message}",
                         estaBuscando = false,
                         uiState = UiState.Error("Sin conexión", false)
                     )
@@ -289,7 +297,6 @@ class NavigationViewModel(
                     onFailure = { error ->
                         _uiState.update {
                             it.copy(
-                                error = error.message ?: "Error al obtener ubicación",
                                 estaCargandoUbicacion = false,
                                 uiState = UiState.Error(error.message ?: "Error GPS")
                             )
@@ -299,7 +306,6 @@ class NavigationViewModel(
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
-                        error = "GPS no disponible",
                         estaCargandoUbicacion = false,
                         uiState = UiState.Error("GPS desactivado", false)
                     )
@@ -312,8 +318,7 @@ class NavigationViewModel(
         val casa = _uiState.value.casa ?: run {
             _uiState.update { 
                 it.copy(
-                    uiState = UiState.Error("Configura tu casa primero", false),
-                    error = "Configura tu casa primero"
+                    uiState = UiState.Error("Configura tu casa primero", false)
                 ) 
             }
             return
@@ -335,9 +340,22 @@ class NavigationViewModel(
         
         // Reset de prioridad de vibraciones al iniciar navegación
         safeHaptics.resetPriority()
+        lastInstructionSpoken = null
 
         // Iniciar tracking continuo
         iniciarTrackingContinuo()
+
+        // Cambiar a pantalla de navegación y resetear estado
+        _uiState.update { 
+            it.copy(
+                pantallaActual = Pantalla.NAVEGACION,
+                navigationState = it.navigationState.copy(
+                    startTime = System.currentTimeMillis(),
+                    hasArrived = false,
+                    isFollowingUser = true
+                )
+            ) 
+        }
 
         // Calcular ruta inicial
         calcularRuta(casa, modo)
@@ -368,7 +386,7 @@ class NavigationViewModel(
                         _uiState.update {
                             it.copy(
                                 gpsAccuracy = ubicacion.precision,
-                                hasGpsSignal = ubicacion.precision < 50f // Señal válida si < 50m
+                                hasGpsSignal = (ubicacion.precision ?: 100f) < 50f // Señal válida si < 50m
                             )
                         }
                         actualizarUbicacionEnNavegacion(ubicacion)
@@ -492,7 +510,7 @@ class NavigationViewModel(
             hasArrived -> NavigationStatus.ARRIVING
             currentState.estaCalculandoRuta -> NavigationStatus.RECALCULATING
             isOffRoute -> NavigationStatus.OFF_ROUTE
-            uiState.gpsAccuracy != null && uiState.gpsAccuracy > 25f -> NavigationStatus.GPS_WEAK
+            (currentState.gpsAccuracy ?: 0f) > 25f -> NavigationStatus.GPS_WEAK
             else -> NavigationStatus.NORMAL
         }
         
@@ -513,6 +531,17 @@ class NavigationViewModel(
             safeHaptics.resetPriority()
         }
         wasOffRoute = isOffRoute
+
+        // 9. Turn-by-turn Voice (TTS)
+        currentInstruction?.let { inst ->
+            if (inst.texto != lastInstructionSpoken) {
+                // Solo hablar si la distancia es significativa o es un cambio de instrucción
+                if (distanceToNextTurn < 100 || lastInstructionSpoken == null) {
+                    ttsManager?.speak(inst.texto)
+                    lastInstructionSpoken = inst.texto
+                }
+            }
+        }
 
         // 11. Actualizar estado de navegación
         val navigationState = NavigationState(
@@ -616,7 +645,6 @@ class NavigationViewModel(
                 if (ubicacion == null) {
                     _uiState.update {
                         it.copy(
-                            error = "Ubicación no disponible",
                             estaCalculandoRuta = false,
                             uiState = UiState.Error("GPS no disponible", false),
                             navigationUiState = NavigationUiState.Error(
@@ -672,7 +700,6 @@ class NavigationViewModel(
 
                             _uiState.update {
                                 it.copy(
-                                    error = result.error.message,
                                     estaCalculandoRuta = false,
                                     uiState = UiState.Error(result.error.message),
                                     navigationUiState = NavigationUiState.Error(
@@ -686,7 +713,6 @@ class NavigationViewModel(
                 } catch (e: Exception) {
                     _uiState.update {
                         it.copy(
-                            error = "Error de conexión",
                             estaCalculandoRuta = false,
                             uiState = UiState.Error("Sin internet", false),
                             navigationUiState = NavigationUiState.Error(
@@ -758,7 +784,6 @@ class NavigationViewModel(
                     onFailure = { error ->
                         _uiState.update {
                             it.copy(
-                                error = error.message ?: "Error al guardar",
                                 estaGuardando = false,
                                 uiState = UiState.Error(error.message ?: "Error")
                             )
@@ -768,7 +793,6 @@ class NavigationViewModel(
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
-                        error = "Error al guardar casa",
                         estaGuardando = false,
                         uiState = UiState.Error("Error de base de datos")
                     )
@@ -791,8 +815,94 @@ class NavigationViewModel(
         _uiState.update { it.copy(pantallaActual = pantalla) }
     }
 
+    fun eliminarCasa() {
+        val casaId = _uiState.value.casa?.id ?: return
+        viewModelScope.launch {
+            try {
+                appModule.mapRepository.eliminarFavorito(casaId)
+                _uiState.update { it.copy(casa = null) }
+            } catch (e: Exception) {
+                _uiState.update { it.copy(uiState = UiState.Error("Error al eliminar casa")) }
+            }
+        }
+    }
+
+    // ==================== SELECCIÓN EN MAPA ====================
+
+    fun iniciarSeleccionMapa() {
+        _uiState.update {
+            it.copy(
+                isSelectingOnMap = true,
+                pantallaActual = Pantalla.MAP,
+                // Centrar inicialmente en ubicación actual si existe
+                mapCenterUbicacion = it.mapCenterUbicacion ?: it.ubicacionActual
+            )
+        }
+    }
+
+    fun onMapMove(lat: Double, lon: Double) {
+        if (!_uiState.value.isSelectingOnMap) return
+        
+        _uiState.update {
+            it.copy(
+                mapCenterUbicacion = UbicacionUsuario(lat, lon)
+            )
+        }
+    }
+
+    fun confirmarSeleccionMapa() {
+        val center = _uiState.value.mapCenterUbicacion ?: return
+        
+        viewModelScope.launch {
+            _uiState.update { it.copy(estaBuscando = true, uiState = UiState.Loading) }
+            
+            try {
+                when (val result = appModule.obtenerDireccionUseCase(center.latitud, center.longitud)) {
+                    is com.example.regresoacasa.domain.model.ApiResult.Success -> {
+                        val lugar = result.data
+                        _uiState.update {
+                            it.copy(
+                                lugarSeleccionado = lugar,
+                                busqueda = lugar.direccion,
+                                isSelectingOnMap = false,
+                                estaBuscando = false,
+                                uiState = UiState.Success()
+                            )
+                        }
+                    }
+                    is com.example.regresoacasa.domain.model.ApiResult.Error -> {
+                        _uiState.update {
+                            it.copy(
+                                estaBuscando = false,
+                                uiState = UiState.Error(result.error.message),
+                                isSelectingOnMap = false
+                            )
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        estaBuscando = false,
+                        uiState = UiState.Error("Error al obtener dirección"),
+                        isSelectingOnMap = false
+                    )
+                }
+            }
+        }
+    }
+
+    fun cancelarSeleccionMapa() {
+        _uiState.update {
+            it.copy(
+                isSelectingOnMap = false,
+                mapCenterUbicacion = null
+            )
+        }
+    }
+
     fun limpiarError() {
-        _uiState.update { it.copy(error = null, uiState = UiState.Idle) }
+        _uiState.update { it.copy(uiState = UiState.Idle) }
     }
 
     override fun onCleared() {
@@ -805,6 +915,10 @@ class NavigationViewModel(
         
         // Detener servicios de ubicación
         appModule.locationTrackingService.stopLocationUpdates()
+        
+        // Detener TTS
+        ttsManager?.release()
+        ttsManager = null
         
         // CRÍTICO: Detener ForegroundService para Android 10+
         try {
@@ -973,38 +1087,52 @@ class NavigationViewModel(
 
     /**
      * Calcula la instrucción actual de navegación turn-by-turn
-     * MVP: Simplificado - solo "Continúa recto" basado en la ruta
+     * Extrae la instrucción real de la lista de instrucciones de la ruta
      */
     private fun calcularInstruccionActual(
         ubicacion: UbicacionUsuario,
         ruta: Ruta,
         remainingDistance: Double
-    ): Triple<InstruccionNavegacion?, Double, Float> {
-        // MVP simplificado: Usar distancia restante como proxy de instrucción
-        // En una implementación completa, analizaríamos los puntos de la ruta
-        // para detectar giros reales
-        
-        val instruction = if (remainingDistance < 50) {
-            InstruccionNavegacion(
-                texto = "Estás llegando",
-                distancia = remainingDistance,
-                tipo = TipoManiobra.DESTINO
-            )
-        } else {
-            InstruccionNavegacion(
-                texto = "Continúa hacia tu destino",
-                distancia = remainingDistance,
-                tipo = TipoManiobra.CONTINUA_RECTO
+    ): Triple<Instruccion?, Double, Float> {
+        if (ruta.instrucciones.isEmpty()) {
+            return Triple(
+                Instruccion("Continúa hacia tu destino", remainingDistance, TipoManiobra.CONTINUA_RECTO),
+                remainingDistance,
+                0.5f
             )
         }
+
+        // 1. Encontrar en qué tramo (instrucción) estamos basándonos en la distancia recorrida
+        val distanciaRecorrida = (ruta.distanciaMetros - remainingDistance).coerceAtLeast(0.0)
         
-        // Calcular progreso hacia la siguiente "maniobra" (simplificado)
-        val totalDistance = ruta.distanciaMetros
-        val progress = if (totalDistance > 0) {
-            ((totalDistance - remainingDistance) / totalDistance).toFloat()
-        } else 0f
+        var acumulado = 0.0
+        var instruccionActual: Instruccion? = null
+        var distanciaAlSiguienteGiro = 0.0
         
-        return Triple(instruction, remainingDistance, progress.coerceIn(0f, 1f))
+        for (inst in ruta.instrucciones) {
+            acumulado += inst.distancia
+            if (acumulado > distanciaRecorrida) {
+                instruccionActual = inst
+                distanciaAlSiguienteGiro = acumulado - distanciaRecorrida
+                break
+            }
+        }
+
+        // Si ya pasamos todas las instrucciones, estamos llegando
+        if (instruccionActual == null || remainingDistance < 30) {
+            return Triple(
+                Instruccion("Estás llegando a tu destino", remainingDistance, TipoManiobra.DESTINO),
+                remainingDistance,
+                1.0f
+            )
+        }
+
+        // Calcular progreso dentro del tramo actual
+        val progresoTramo = if (instruccionActual.distancia > 0) {
+            (1.0 - (distanciaAlSiguienteGiro / instruccionActual.distancia)).toFloat()
+        } else 1.0f
+
+        return Triple(instruccionActual, distanciaAlSiguienteGiro, progresoTramo.coerceIn(0f, 1f))
     }
 
     /**

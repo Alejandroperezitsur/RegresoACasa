@@ -1,5 +1,7 @@
 package com.example.regresoacasa.domain.model
 
+import com.example.regresoacasa.domain.model.TipoManiobra
+
 /**
  * Modelo de dominio para una ruta calculada
  */
@@ -37,5 +39,15 @@ data class PuntoRuta(
 data class Instruccion(
     val texto: String,
     val distancia: Double,
-    val tipo: String
-)
+    val tipo: TipoManiobra
+) {
+    val textoCorto: String
+        get() = texto.take(30) + if (texto.length > 30) "..." else ""
+    
+    val distanciaFormateada: String
+        get() = if (distancia >= 1000) {
+            "%.1f km".format(distancia / 1000.0)
+        } else {
+            "${distancia.toInt()} m"
+        }
+}

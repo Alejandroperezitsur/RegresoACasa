@@ -22,11 +22,10 @@ interface NominatimApiService {
     suspend fun searchAddress(
         @Query("q") query: String,
         @Query("format") format: String = "json",
-        @Query("limit") limit: Int = 5,
-        @Query("countrycodes") countrycodes: String = "MX",
-        @Query("viewbox") viewbox: String = "-118.5,14.5,-86.0,32.7",
-        @Query("bounded") bounded: Int = 0,
-        @Query("accept-language") acceptLanguage: String = "es-MX,es"
+        @Query("limit") limit: Int = 10,
+        @Query("addressdetails") addressDetails: Int = 1,
+        @Query("namedetails") nameDetails: Int = 1,
+        @Query("accept-language") acceptLanguage: String = "es"
     ): Response<List<NominatimResult>>
     
     /**
@@ -46,6 +45,7 @@ interface NominatimApiService {
         @Query("country") country: String = "México",
         @Query("format") format: String = "json",
         @Query("limit") limit: Int = 5,
+        @Query("addressdetails") addressDetails: Int = 1,
         @Query("accept-language") acceptLanguage: String = "es-MX,es"
     ): Response<List<NominatimResult>>
     
@@ -54,6 +54,7 @@ interface NominatimApiService {
         @Query("lat") lat: Double,
         @Query("lon") lon: Double,
         @Query("format") format: String = "json",
+        @Query("addressdetails") addressDetails: Int = 1,
         @Query("accept-language") acceptLanguage: String = "es-MX,es"
     ): Response<NominatimResult>
 }
