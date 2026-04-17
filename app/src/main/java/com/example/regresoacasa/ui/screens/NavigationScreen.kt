@@ -142,8 +142,7 @@ fun NavigationScreen(
                 // Info secundaria (Guardian, tiempo total)
                 SecondaryInfoRow(
                     isSafeReturnActive = uiState.isSafeReturnActive,
-                    remainingDuration = navigationState.remainingDuration,
-                    remainingDistance = navigationState.remainingDistance
+                    navigationState = navigationState
                 )
             }
 
@@ -342,9 +341,11 @@ private fun TurnByTurnCard(
 @Composable
 private fun SecondaryInfoRow(
     isSafeReturnActive: Boolean,
-    remainingDuration: Double,
-    remainingDistance: Double
+    navigationState: com.example.regresoacasa.domain.model.NavigationState
 ) {
+    val remainingDuration = navigationState.remainingDuration
+    val remainingDistance = navigationState.remainingDistance
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -375,16 +376,30 @@ private fun SecondaryInfoRow(
         // Tiempo/distancia total (info secundaria)
         val minutos = (remainingDuration / 60).toInt()
         val distanciaKm = remainingDistance / 1000
+        val modoTexto = when(navigationState.transportMode) {
+            "foot-walking" -> "🚶 Caminando"
+            "driving-car" -> "🚗 En carro"
+            "cycling-regular" -> "🚲 En bici"
+            else -> ""
+        }
 
-        Text(
-            text = if (distanciaKm >= 1) {
-                "${distanciaKm.toInt()} km • ${minutos} min restantes"
-            } else {
-                "${remainingDistance.toInt()} m • ${minutos} min restantes"
-            },
-            fontSize = 12.sp,
-            color = Color.Gray
-        )
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "$modoTexto • Llegada: ${navigationState.eta}",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1565C0)
+            )
+            Text(
+                text = if (distanciaKm >= 1) {
+                    "${distanciaKm.toInt()} km • ${minutos} min restantes"
+                } else {
+                    "${remainingDistance.toInt()} m • ${minutos} min restantes"
+                },
+                fontSize = 12.sp,
+                color = Color.Gray
+            )
+        }
     }
 }
 

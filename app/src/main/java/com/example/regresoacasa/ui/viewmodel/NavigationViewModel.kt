@@ -323,7 +323,10 @@ class NavigationViewModel(
             }
             return
         }
+        iniciarNavegacionConDestino(casa, modo)
+    }
 
+    fun iniciarNavegacionConDestino(destino: LugarFavorito, modo: String = "foot-walking") {
         // Feedback háptico: Navegación iniciada (con fallback visual)
         safeHaptics.navigationStarted()
         
@@ -352,13 +355,14 @@ class NavigationViewModel(
                 navigationState = it.navigationState.copy(
                     startTime = System.currentTimeMillis(),
                     hasArrived = false,
-                    isFollowingUser = true
+                    isFollowingUser = true,
+                    destination = destino
                 )
             ) 
         }
 
         // Calcular ruta inicial
-        calcularRuta(casa, modo)
+        calcularRuta(destino, modo)
     }
 
     private fun iniciarTrackingContinuo(intervalMillis: Long = NORMAL_INTERVAL) {
@@ -472,6 +476,12 @@ class NavigationViewModel(
         // 7. Calcular distancia restante y tiempo
         val remainingDistance = calcularDistanciaRestante(ubicacion, ruta)
         val remainingDuration = (remainingDistance / ruta.distanciaMetros) * ruta.duracionSegundos
+        
+        // Calcular ETA (Hora estimada de llegada)
+        val calendar = java.util.Calendar.getInstance()
+        calendar.add(java.util.Calendar.SECOND, remainingDuration.toInt())
+        val etaFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val eta = etaFormat.format(calendar.time)
 
         // 8. DETECCIÓN DE LLEGADA (nueva)
         val hasArrived = detectarLlegada(remainingDistance, ubicacion)
@@ -550,6 +560,8 @@ class NavigationViewModel(
             destination = currentState.casa,
             remainingDistance = remainingDistance,
             remainingDuration = remainingDuration,
+            transportMode = currentState.navigationState.transportMode,
+            eta = eta,
             isOffRoute = isOffRoute,
             distanceToRoute = distanciaARuta,
             isFollowingUser = currentState.navigationState.isFollowingUser,
@@ -668,6 +680,7 @@ class NavigationViewModel(
                                 destination = destino,
                                 remainingDistance = ruta.distanciaMetros,
                                 remainingDuration = ruta.duracionSegundos,
+                                transportMode = modo,
                                 isOffRoute = false,
                                 distanceToRoute = 0.0,
                                 isFollowingUser = true,

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -53,7 +54,8 @@ import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 fun SearchScreen(
     viewModel: NavigationViewModel,
     onBack: () -> Unit,
-    onGuardarComoCasa: () -> Unit
+    onGuardarComoCasa: () -> Unit,
+    onIrADestino: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -200,22 +202,36 @@ fun SearchScreen(
                             fontWeight = FontWeight.SemiBold
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = onGuardarComoCasa,
-                            enabled = !uiState.estaGuardando,
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF4CAF50)
-                            )
-                        ) {
-                            if (uiState.estaGuardando) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                    color = Color.White
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = onGuardarComoCasa,
+                                enabled = !uiState.estaGuardando,
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF4CAF50)
                                 )
-                            } else {
-                                Text("✓ Guardar como Casa")
+                            ) {
+                                if (uiState.estaGuardando) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Text("✓ Guardar Casa")
+                                }
+                            }
+                            
+                            Button(
+                                onClick = onIrADestino,
+                                modifier = Modifier.weight(1f),
+                                colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                    containerColor = Color(0xFF1565C0)
+                                )
+                            ) {
+                                Icon(Icons.Default.Navigation, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Ir ahora")
                             }
                         }
                     }

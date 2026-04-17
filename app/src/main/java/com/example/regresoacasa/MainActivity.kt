@@ -80,7 +80,14 @@ class MainActivity : ComponentActivity() {
                                     viewModel = viewModel,
                                     onRequestPermission = { requestLocationPermission() },
                                     onIrACasa = { viewModel.iniciarNavegacion() },
-                                    onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
+                                    onBuscarDestino = { 
+                                        viewModel.onSearchQueryChange("")
+                                        viewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                    },
+                                    onBuscarCasa = { 
+                                        viewModel.onSearchQueryChange("")
+                                        viewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                    },
                                     hasLocationPermission = hasLocationPermission()
                                 )
                             }
@@ -91,6 +98,20 @@ class MainActivity : ComponentActivity() {
                                     onGuardarComoCasa = {
                                         uiState.lugarSeleccionado?.let { lugar ->
                                             viewModel.guardarCasaDesdeLugar(lugar)
+                                        }
+                                    },
+                                    onIrADestino = {
+                                        uiState.lugarSeleccionado?.let { lugar ->
+                                            // Convertir Lugar a LugarFavorito temporal
+                                            val destino = com.example.regresoacasa.domain.model.LugarFavorito(
+                                                id = "temp",
+                                                nombre = lugar.nombre,
+                                                direccion = lugar.direccion,
+                                                latitud = lugar.latitud,
+                                                longitud = lugar.longitud,
+                                                tipo = com.example.regresoacasa.domain.model.LugarFavorito.TipoFavorito.OTRO
+                                            )
+                                            viewModel.iniciarNavegacionConDestino(destino)
                                         }
                                     }
                                 )
@@ -109,6 +130,7 @@ class MainActivity : ComponentActivity() {
                                     viewModel = viewModel,
                                     onRequestPermission = { requestLocationPermission() },
                                     onIrACasa = { viewModel.iniciarNavegacion() },
+                                    onBuscarDestino = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
                                     onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
                                     hasLocationPermission = hasLocationPermission()
                                 )

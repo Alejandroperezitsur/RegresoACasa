@@ -24,6 +24,8 @@ data class NavigationState(
     val destination: LugarFavorito? = null,
     val remainingDistance: Double = 0.0,
     val remainingDuration: Double = 0.0,
+    val transportMode: String = "foot-walking", // "foot-walking", "driving-car", "cycling-regular"
+    val eta: String = "",
     val isOffRoute: Boolean = false,
     val distanceToRoute: Double = 0.0,
     val isFollowingUser: Boolean = true,

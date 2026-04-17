@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -62,6 +63,7 @@ fun MainScreen(
     viewModel: NavigationViewModel,
     onRequestPermission: () -> Unit,
     onIrACasa: () -> Unit,
+    onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
     hasLocationPermission: Boolean
 ) {
@@ -152,6 +154,7 @@ fun MainScreen(
                 hasLocationPermission = hasLocationPermission,
                 onRequestPermission = onRequestPermission,
                 onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
+                onBuscarDestino = onBuscarDestino,
                 onBuscarCasa = onBuscarCasa,
                 onIrACasa = onIrACasa,
                 modifier = Modifier.align(Alignment.BottomCenter)
@@ -262,6 +265,7 @@ private fun FloatingButtons(
     hasLocationPermission: Boolean,
     onRequestPermission: () -> Unit,
     onMiUbicacion: () -> Unit,
+    onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
     onIrACasa: () -> Unit,
     modifier: Modifier = Modifier
@@ -273,6 +277,19 @@ private fun FloatingButtons(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        // Botón Buscar Destino (Nuevo)
+        FloatingActionButton(
+            onClick = onBuscarDestino,
+            containerColor = Color.White,
+            modifier = Modifier.size(48.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Search,
+                contentDescription = "Buscar destino",
+                tint = Color(0xFF1565C0)
+            )
+        }
+
         // Botón mi ubicación
         FloatingActionButton(
             onClick = {
