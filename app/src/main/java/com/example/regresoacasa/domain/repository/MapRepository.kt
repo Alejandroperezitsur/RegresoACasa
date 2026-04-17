@@ -22,7 +22,7 @@ interface MapRepository {
     // Rutas
     suspend fun calcularRuta(
         origen: UbicacionUsuario,
-        destino: LugarFavorito,
+        destino: UbicacionUsuario,
         modo: String
     ): ApiResult<Ruta>
 

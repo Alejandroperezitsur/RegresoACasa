@@ -53,6 +53,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Layers
+import com.example.regresoacasa.domain.model.Lugar
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.ui.components.MapaView
 import com.example.regresoacasa.ui.state.UiState
@@ -68,26 +71,39 @@ fun MainScreen(
     hasLocationPermission: Boolean
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showSettingsMenu by remember { mutableStateOf(false) }
 
-    if (showDeleteConfirm) {
+    if (showSettingsMenu) {
         AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("¿Cambiar de casa?") },
-            text = { Text("Se eliminará la ubicación actual de tu casa para que puedas configurar una nueva.") },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        viewModel.eliminarCasa()
-                        showDeleteConfirm = false
+            onDismissRequest = { showSettingsMenu = false },
+            title = { Text("Configuración") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Opciones de tu ubicación guardada:")
+                    Button(
+                        onClick = {
+                            viewModel.eliminarCasa()
+                            showSettingsMenu = false
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Eliminar ubicación de casa")
                     }
-                ) {
-                    Text("Eliminar", color = Color(0xFFC62828))
+                    
+                    Text(
+                        "Versión 1.0.0 - Regreso a Casa Seguro",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
                 }
             },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("Cancelar")
+            confirmButton = {
+                TextButton(onClick = { showSettingsMenu = false }) {
+                    Text("Cerrar")
                 }
             }
         )
@@ -102,7 +118,12 @@ fun MainScreen(
             isFollowingUser = uiState.navigationState.isFollowingUser,
             isSelectingOnMap = uiState.isSelectingOnMap,
             onFollowUserToggle = { viewModel.toggleFollowUser() },
-            onMapMove = { lat, lon -> viewModel.onMapMove(lat, lon) }
+            onMapMove = { lat, lon -> viewModel.onMapMove(lat, lon) },
+            onLongPress = { lat, lon -> 
+                viewModel.onMapLongClick(lat, lon)
+            },
+            seleccion = uiState.mapCenterUbicacion,
+            mapStyle = uiState.mapStyle
         )
 
         // Mira/Cursor central cuando se selecciona en mapa
@@ -126,7 +147,7 @@ fun MainScreen(
         if (!uiState.isSelectingOnMap) {
             HeaderSection(
                 casa = uiState.casa,
-                onEliminarCasa = { showDeleteConfirm = true },
+                onSettingsClick = { showSettingsMenu = true },
                 modifier = Modifier.align(Alignment.TopCenter)
             )
         } else {
@@ -149,16 +170,44 @@ fun MainScreen(
 
         // Botones flotantes o controles de selección
         if (!uiState.isSelectingOnMap) {
-            FloatingButtons(
-                tieneCasa = uiState.casa != null,
-                hasLocationPermission = hasLocationPermission,
-                onRequestPermission = onRequestPermission,
-                onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
-                onBuscarDestino = onBuscarDestino,
-                onBuscarCasa = onBuscarCasa,
-                onIrACasa = onIrACasa,
-                modifier = Modifier.align(Alignment.BottomCenter)
-            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(bottom = 16.dp, end = 16.dp),
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Selector de Capas de Mapa
+                MapStyleSelector(
+                    currentStyle = uiState.mapStyle,
+                    onStyleSelected = { viewModel.cambiarEstiloMapa(it) }
+                )
+
+                // Botón Guardian (Emergencia)
+                FloatingActionButton(
+                    onClick = { viewModel.sendEmergencyAlert() },
+                    containerColor = if (uiState.isSafeReturnActive) Color.Red else Color.White,
+                    modifier = Modifier.size(40.dp),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.HealthAndSafety,
+                        contentDescription = "Emergencia",
+                        tint = if (uiState.isSafeReturnActive) Color.White else Color(0xFFD32F2F),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                FloatingButtons(
+                    tieneCasa = uiState.casa != null,
+                    hasLocationPermission = hasLocationPermission,
+                    onRequestPermission = onRequestPermission,
+                    onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
+                    onBuscarDestino = onBuscarDestino,
+                    onBuscarCasa = onBuscarCasa,
+                    onIrACasa = onIrACasa
+                )
+            }
         } else {
             SelectionControls(
                 onConfirmar = { viewModel.confirmarSeleccionMapa() },
@@ -183,7 +232,12 @@ fun MainScreen(
             val error = uiState.uiState as UiState.Error
             ErrorCard(
                 mensaje = error.message,
-                onDismiss = { viewModel.limpiarError() },
+                onDismiss = { 
+                    if (error.message.contains("Permiso", ignoreCase = true)) {
+                        onRequestPermission()
+                    }
+                    viewModel.limpiarError()
+                },
                 modifier = Modifier.align(Alignment.Center)
             )
         }
@@ -193,7 +247,7 @@ fun MainScreen(
 @Composable
 private fun HeaderSection(
     casa: LugarFavorito?,
-    onEliminarCasa: () -> Unit,
+    onSettingsClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Box(
@@ -241,20 +295,75 @@ private fun HeaderSection(
                 }
             }
 
-            if (casa != null) {
-                IconButton(
-                    onClick = onEliminarCasa,
-                    modifier = Modifier
-                        .size(40.dp)
-                        .background(Color.White.copy(alpha = 0.2f), CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Configurar",
-                        tint = Color.White
-                    )
+            IconButton(
+                onClick = onSettingsClick,
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(Color.White.copy(alpha = 0.2f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Settings,
+                    contentDescription = "Configurar",
+                    tint = Color.White
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MapStyleSelector(
+    currentStyle: String,
+    onStyleSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val styles = listOf("Normal", "Satélite", "Transporte", "Topográfico")
+
+    Column(horizontalAlignment = Alignment.End) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn() + slideInVertically { it },
+            exit = fadeOut() + slideOutVertically { it }
+        ) {
+            Card(
+                modifier = Modifier.padding(bottom = 8.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(modifier = Modifier.padding(4.dp)) {
+                    styles.forEach { style ->
+                        TextButton(
+                            onClick = {
+                                onStyleSelected(style)
+                                expanded = false
+                            },
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text(
+                                text = style,
+                                color = if (currentStyle == style) Color(0xFF1565C0) else Color.DarkGray,
+                                fontWeight = if (currentStyle == style) FontWeight.Bold else FontWeight.Normal,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                 }
             }
+        }
+
+        FloatingActionButton(
+            onClick = { expanded = !expanded },
+            containerColor = Color.White,
+            modifier = Modifier.size(40.dp),
+            shape = CircleShape
+        ) {
+            Icon(
+                imageVector = Icons.Default.Layers,
+                contentDescription = "Capas",
+                tint = Color(0xFF1565C0),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -267,13 +376,9 @@ private fun FloatingButtons(
     onMiUbicacion: () -> Unit,
     onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
-    onIrACasa: () -> Unit,
-    modifier: Modifier = Modifier
+    onIrACasa: () -> Unit
 ) {
     Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(20.dp),
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

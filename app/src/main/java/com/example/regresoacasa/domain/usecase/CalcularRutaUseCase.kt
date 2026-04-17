@@ -11,18 +11,16 @@ class CalcularRutaUseCase(
 ) {
     /**
      * Calcula una ruta desde la ubicación proporcionada hasta el destino.
-     * La ubicación se pasa como parámetro para mantener el principio de inyección de dependencias
-     * y permitir testing más fácil.
      * 
-     * @param ubicacionOrigen Ubicación actual del usuario
+     * @param origen Ubicación de origen (si es null, el repository manejará el error o el VM debe proveerla)
      * @param destino Destino de la ruta
      * @param modo Modo de transporte ("foot-walking" o "driving-car")
      */
     suspend operator fun invoke(
-        ubicacionOrigen: UbicacionUsuario,
-        destino: LugarFavorito,
+        origen: UbicacionUsuario,
+        destino: UbicacionUsuario,
         modo: String = "foot-walking"
     ): ApiResult<Ruta> {
-        return repository.calcularRuta(ubicacionOrigen, destino, modo)
+        return repository.calcularRuta(origen, destino, modo)
     }
 }

@@ -195,7 +195,7 @@ class MapRepositoryImpl(
 
     override suspend fun calcularRuta(
         origen: UbicacionUsuario,
-        destino: LugarFavorito,
+        destino: UbicacionUsuario,
         modo: String
     ): ApiResult<Ruta> {
         // Validar API key antes de hacer la llamada

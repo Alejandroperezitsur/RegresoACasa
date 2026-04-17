@@ -96,7 +96,8 @@ data class MainUiState(
     val batteryLevel: Int = 100,
     val isLowBatteryMode: Boolean = false,
     val safeReturnSession: com.example.regresoacasa.data.safety.SafeReturnSession? = null,
-    val isSafeReturnActive: Boolean = false
+    val isSafeReturnActive: Boolean = false,
+    val mapStyle: String = "Normal"
 )
 
 enum class Pantalla {

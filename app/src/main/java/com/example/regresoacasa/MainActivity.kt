@@ -102,16 +102,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onIrADestino = {
                                         uiState.lugarSeleccionado?.let { lugar ->
-                                            // Convertir Lugar a LugarFavorito temporal
-                                            val destino = com.example.regresoacasa.domain.model.LugarFavorito(
-                                                id = "temp",
-                                                nombre = lugar.nombre,
-                                                direccion = lugar.direccion,
-                                                latitud = lugar.latitud,
-                                                longitud = lugar.longitud,
-                                                tipo = com.example.regresoacasa.domain.model.LugarFavorito.TipoFavorito.OTRO
-                                            )
-                                            viewModel.iniciarNavegacionConDestino(destino)
+                                            viewModel.iniciarNavegacionConDestino(lugar)
                                         }
                                     }
                                 )

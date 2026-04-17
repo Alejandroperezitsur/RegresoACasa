@@ -21,7 +21,7 @@ enum class NavigationStatus {
 data class NavigationState(
     val userLocation: UbicacionUsuario? = null,
     val route: Ruta? = null,
-    val destination: LugarFavorito? = null,
+    val destination: Lugar? = null,
     val remainingDistance: Double = 0.0,
     val remainingDuration: Double = 0.0,
     val transportMode: String = "foot-walking", // "foot-walking", "driving-car", "cycling-regular"
@@ -53,5 +53,6 @@ data class NavigationState(
     val distanceToNextTurnStable: Double = 0.0,  // FASE 2: Anti-flicker
     val distanceBucketStable: Int = 999,          // FASE 2: Bucket estable (nunca sube)
     val displayedDistance: Double = 0.0,          // FASE 3: Suavizado visual
-    val realDeviation: Double = 0.0               // FASE 4: Desviación real vs snap
+    val realDeviation: Double = 0.0,              // FASE 4: Desviación real vs snap
+    val currentSpeedKmh: Int = 0                  // FASE 6: Velocidad actual para validación
 )

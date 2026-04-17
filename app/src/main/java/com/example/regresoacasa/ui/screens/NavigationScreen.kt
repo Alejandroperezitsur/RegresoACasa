@@ -102,9 +102,19 @@ fun NavigationScreen(
                 .padding(padding)
         ) {
             // Mapa (contexto secundario, 40% de atención)
+            val destinoFavorito = navigationState.destination?.let { 
+                com.example.regresoacasa.domain.model.LugarFavorito(
+                    id = it.id,
+                    nombre = it.nombre,
+                    direccion = it.direccion,
+                    latitud = it.latitud,
+                    longitud = it.longitud,
+                    tipo = com.example.regresoacasa.domain.model.LugarFavorito.TipoFavorito.OTRO
+                )
+            }
             MapaView(
                 ubicacion = navigationState.userLocation,
-                destino = navigationState.destination,
+                destino = destinoFavorito,
                 ruta = navigationState.route?.puntos,
                 isFollowingUser = navigationState.isFollowingUser,
                 onFollowUserToggle = { viewModel.toggleFollowUser() }
@@ -346,59 +356,74 @@ private fun SecondaryInfoRow(
     val remainingDuration = navigationState.remainingDuration
     val remainingDistance = navigationState.remainingDistance
 
-    Row(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+        shape = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
     ) {
-        // Guardian indicator (si activo)
-        if (isSafeReturnActive) {
+        Column(
+            modifier = Modifier.padding(16.dp)
+        ) {
             Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Shield,
-                    contentDescription = null,
-                    tint = Color(0xFF4CAF50),
-                    modifier = Modifier.size(16.dp)
-                )
-                Spacer(modifier = Modifier.width(4.dp))
+                // Modo y Velocidad
+                val modoIcono = when(navigationState.transportMode) {
+                    "foot-walking" -> "🚶"
+                    "driving-car" -> "🚗"
+                    "cycling-regular" -> "🚲"
+                    else -> "📍"
+                }
+                
                 Text(
-                    text = "Protegido",
-                    fontSize = 12.sp,
-                    color = Color(0xFF4CAF50)
+                    text = "$modoIcono ${navigationState.currentSpeedKmh} km/h",
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF1565C0)
                 )
+
+                if (isSafeReturnActive) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Shield, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(14.dp))
+                        Text(" Guardian", fontSize = 12.sp, color = Color(0xFF4CAF50), fontWeight = FontWeight.Bold)
+                    }
+                }
             }
-        }
 
-        // Tiempo/distancia total (info secundaria)
-        val minutos = (remainingDuration / 60).toInt()
-        val distanciaKm = remainingDistance / 1000
-        val modoTexto = when(navigationState.transportMode) {
-            "foot-walking" -> "🚶 Caminando"
-            "driving-car" -> "🚗 En carro"
-            "cycling-regular" -> "🚲 En bici"
-            else -> ""
-        }
+            Spacer(modifier = Modifier.height(8.dp))
 
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = "$modoTexto • Llegada: ${navigationState.eta}",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF1565C0)
-            )
-            Text(
-                text = if (distanciaKm >= 1) {
-                    "${distanciaKm.toInt()} km • ${minutos} min restantes"
-                } else {
-                    "${remainingDistance.toInt()} m • ${minutos} min restantes"
-                },
-                fontSize = 12.sp,
-                color = Color.Gray
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                val minutos = (remainingDuration / 60).toInt()
+                val distanciaKm = remainingDistance / 1000
+
+                Column {
+                    Text("Llegada", fontSize = 12.sp, color = Color.Gray)
+                    Text(navigationState.eta, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                }
+
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Tiempo", fontSize = 12.sp, color = Color.Gray)
+                    Text("$minutos min", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
+                }
+
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Distancia", fontSize = 12.sp, color = Color.Gray)
+                    Text(
+                        if (distanciaKm >= 1) "%.1f km".format(distanciaKm) else "${remainingDistance.toInt()} m",
+                        fontSize = 20.sp, 
+                        fontWeight = FontWeight.ExtraBold, 
+                        color = Color.Black
+                    )
+                }
+            }
         }
     }
 }

@@ -1,43 +1,24 @@
 package com.example.regresoacasa.ui.viewmodel
 
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.regresoacasa.di.AppModule
-import com.example.regresoacasa.domain.model.Lugar
-import com.example.regresoacasa.domain.model.LugarFavorito
-import com.example.regresoacasa.domain.model.NavigationState
-import com.example.regresoacasa.domain.model.NavigationStatus
-import com.example.regresoacasa.domain.model.PuntoRuta
-import com.example.regresoacasa.domain.model.Ruta
-import com.example.regresoacasa.domain.model.UbicacionUsuario
-import com.example.regresoacasa.domain.usecase.BuscarLugaresUseCase
+import com.example.regresoacasa.domain.model.*
 import com.example.regresoacasa.data.location.LocationFilter
 import com.example.regresoacasa.data.location.LocationForegroundService
 import com.example.regresoacasa.domain.utils.SnapToRoute
-import com.example.regresoacasa.domain.usecase.GuardarFavoritoUseCase
-import com.example.regresoacasa.domain.usecase.ObtenerDireccionUseCase
-import com.example.regresoacasa.ui.state.ErrorType
-import com.example.regresoacasa.ui.state.MainUiState
-import com.example.regresoacasa.ui.state.NavigationUiState
-import com.example.regresoacasa.ui.state.Pantalla
-import com.example.regresoacasa.ui.state.UiState
-import com.example.regresoacasa.ui.state.ConnectionState
-import com.example.regresoacasa.ui.state.SystemFeedbackState
+import com.example.regresoacasa.ui.state.*
 import com.example.regresoacasa.domain.utils.SmoothLocationTransition
 import com.example.regresoacasa.data.location.BatteryLevelListener
 import com.example.regresoacasa.data.location.BatteryMode
 import com.example.regresoacasa.data.safety.SafeReturnPreferences
-import com.example.regresoacasa.data.safety.SafeReturnSession
 import com.example.regresoacasa.utils.SafeHaptics
-import android.util.Log
-import android.content.Context
-import kotlinx.coroutines.flow.first
-import com.example.regresoacasa.domain.model.Instruccion
-import com.example.regresoacasa.domain.model.TipoManiobra
-import com.example.regresoacasa.domain.model.UbicacionUsuario as PuntoRutaAlias
-import android.net.ConnectivityManager
-import android.net.NetworkCapabilities
+import com.example.regresoacasa.domain.model.UbicacionUsuario
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -49,16 +30,13 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.pow
-import kotlin.math.sin
-import kotlin.math.sqrt
+import kotlin.math.*
+import kotlin.collections.ArrayDeque
 
 @OptIn(FlowPreview::class)
 class NavigationViewModel(
@@ -86,6 +64,7 @@ class NavigationViewModel(
     
     // Feedback háptico robusto con manejo de errores
     private lateinit var safeHaptics: SafeHaptics
+    private lateinit var guardianManager: com.example.regresoacasa.data.safety.GuardianManager
     val isHapticsAvailable: Boolean
         get() = if (::safeHaptics.isInitialized) safeHaptics.isAvailable else false
     
@@ -113,6 +92,8 @@ class NavigationViewModel(
         viewModelScope.launch {
             restoreSafeReturnSession()
         }
+        // FASE: Obtener ubicación inicial inmediatamente para centrar mapa en México y no en el mar
+        obtenerUbicacionUnica()
     }
     
     /**
@@ -122,8 +103,16 @@ class NavigationViewModel(
         batteryLevelListener = BatteryLevelListener(context)
         safeReturnPreferences = SafeReturnPreferences(context)
         safeHaptics = SafeHaptics(context)
+        guardianManager = com.example.regresoacasa.data.safety.GuardianManager(context, safeHaptics)
         ttsManager = com.example.regresoacasa.utils.TtsManager(context)
         setupBatteryMonitoring()
+
+        // Observar estado del Guardian
+        viewModelScope.launch {
+            guardianManager.isGuardianActive.collect { active ->
+                _uiState.update { it.copy(isSafeReturnActive = active) }
+            }
+        }
     }
     
     /**
@@ -323,10 +312,18 @@ class NavigationViewModel(
             }
             return
         }
-        iniciarNavegacionConDestino(casa, modo)
+        
+        val lugarCasa = Lugar(
+            id = casa.id,
+            nombre = casa.nombre,
+            direccion = casa.direccion,
+            latitud = casa.latitud,
+            longitud = casa.longitud
+        )
+        iniciarNavegacionConDestino(lugarCasa, modo)
     }
 
-    fun iniciarNavegacionConDestino(destino: LugarFavorito, modo: String = "foot-walking") {
+    fun iniciarNavegacionConDestino(destino: Lugar, modo: String = "foot-walking") {
         // Feedback háptico: Navegación iniciada (con fallback visual)
         safeHaptics.navigationStarted()
         
@@ -348,7 +345,8 @@ class NavigationViewModel(
         // Iniciar tracking continuo
         iniciarTrackingContinuo()
 
-        // Cambiar a pantalla de navegación y resetear estado
+        val lugarDestino = destino
+
         _uiState.update { 
             it.copy(
                 pantallaActual = Pantalla.NAVEGACION,
@@ -356,13 +354,13 @@ class NavigationViewModel(
                     startTime = System.currentTimeMillis(),
                     hasArrived = false,
                     isFollowingUser = true,
-                    destination = destino
+                    destination = lugarDestino
                 )
             ) 
         }
 
         // Calcular ruta inicial
-        calcularRuta(destino, modo)
+        calcularRuta(lugarDestino, modo)
     }
 
     private fun iniciarTrackingContinuo(intervalMillis: Long = NORMAL_INTERVAL) {
@@ -428,6 +426,11 @@ class NavigationViewModel(
     }
 
     private fun actualizarUbicacionEnNavegacion(ubicacionRaw: UbicacionUsuario) {
+        // Actualizar Guardian
+        if (::guardianManager.isInitialized) {
+            guardianManager.updateLocation(ubicacionRaw)
+        }
+
         val currentState = _uiState.value
         val ruta = currentState.rutaActual ?: return
 
@@ -473,9 +476,16 @@ class NavigationViewModel(
             ultimaVezEnRuta = currentTime
         }
 
-        // 7. Calcular distancia restante y tiempo
+        // 7. Calcular distancia restante y tiempo (ETA mejorado)
         val remainingDistance = calcularDistanciaRestante(ubicacion, ruta)
-        val remainingDuration = (remainingDistance / ruta.distanciaMetros) * ruta.duracionSegundos
+        
+        // FASE 6: ETA Dinámico basado en velocidad real + teórica
+        val theoreticalSpeed = ruta.distanciaMetros / ruta.duracionSegundos
+        val currentSpeed = velocidadMs.coerceIn(0.5, 30.0) // Clamp entre 0.5m/s y 30m/s (coche)
+        
+        // Mezclamos: 30% velocidad actual, 70% teórica para evitar saltos bruscos
+        val blendedSpeed = (currentSpeed * 0.3) + (theoreticalSpeed * 0.7)
+        val remainingDuration = (remainingDistance / blendedSpeed).coerceAtLeast(0.0)
         
         // Calcular ETA (Hora estimada de llegada)
         val calendar = java.util.Calendar.getInstance()
@@ -557,7 +567,7 @@ class NavigationViewModel(
         val navigationState = NavigationState(
             userLocation = ubicacion,
             route = ruta,
-            destination = currentState.casa,
+            destination = currentState.navigationState.destination,
             remainingDistance = remainingDistance,
             remainingDuration = remainingDuration,
             transportMode = currentState.navigationState.transportMode,
@@ -590,7 +600,8 @@ class NavigationViewModel(
             },
             distanceBucketStable = stableBucket,
             displayedDistance = displayedDistance,
-            realDeviation = realDeviation
+            realDeviation = realDeviation,
+            currentSpeedKmh = (velocidadMs * 3.6).toInt()
         )
 
         _uiState.update {
@@ -630,14 +641,15 @@ class NavigationViewModel(
 
             delay(500) // Pequeño delay para UI
 
-            val casa = _uiState.value.casa ?: return@launch
-            calcularRuta(casa, "foot-walking", isRecalculation = true)
+            val destino = _uiState.value.navigationState.destination ?: return@launch
+            calcularRuta(destino, "foot-walking", isRecalculation = true)
         }
     }
 
     private fun calcularRuta(
-        destino: LugarFavorito, 
+        destino: Lugar, 
         modo: String,
+        origen: UbicacionUsuario? = null,
         isRecalculation: Boolean = false
     ) {
         routeCalculationJob?.cancel()
@@ -652,15 +664,16 @@ class NavigationViewModel(
                     ) 
                 }
 
-                // Obtener ubicación actual para pasar al UseCase
-                val ubicacion = _uiState.value.ubicacionActual
-                if (ubicacion == null) {
+                // Obtener origen (parámetro o ubicación actual)
+                val puntoOrigen = origen ?: _uiState.value.ubicacionActual
+                
+                if (puntoOrigen == null) {
                     _uiState.update {
                         it.copy(
                             estaCalculandoRuta = false,
-                            uiState = UiState.Error("GPS no disponible", false),
+                            uiState = UiState.Error("Origen no disponible", false),
                             navigationUiState = NavigationUiState.Error(
-                                "Ubicación requerida",
+                                "Ubicación de origen requerida",
                                 ErrorType.GPS_ERROR
                             )
                         )
@@ -669,13 +682,14 @@ class NavigationViewModel(
                 }
 
                 try {
-                    when (val result = appModule.calcularRutaUseCase(ubicacion, destino, modo)) {
+                    val puntoDestino = UbicacionUsuario(destino.latitud, destino.longitud)
+                    when (val result = appModule.calcularRutaUseCase(puntoOrigen, puntoDestino, modo)) {
                         is com.example.regresoacasa.domain.model.ApiResult.Success -> {
                             val ruta = result.data
                             lastRouteCalculation = System.currentTimeMillis()
                             
                             val navigationState = NavigationState(
-                                userLocation = ubicacion,
+                                userLocation = puntoOrigen,
                                 route = ruta,
                                 destination = destino,
                                 remainingDistance = ruta.distanciaMetros,
@@ -863,6 +877,16 @@ class NavigationViewModel(
         }
     }
 
+    fun onMapLongClick(lat: Double, lon: Double) {
+        _uiState.update {
+            it.copy(
+                mapCenterUbicacion = UbicacionUsuario(lat, lon),
+                // No cerramos el modo selección inmediatamente para que el usuario vea el marcador
+                isSelectingOnMap = true
+            )
+        }
+    }
+
     fun confirmarSeleccionMapa() {
         val center = _uiState.value.mapCenterUbicacion ?: return
         
@@ -912,6 +936,22 @@ class NavigationViewModel(
                 mapCenterUbicacion = null
             )
         }
+    }
+
+    fun cambiarEstiloMapa(nuevoEstilo: String) {
+        _uiState.update { it.copy(mapStyle = nuevoEstilo) }
+    }
+
+    fun toggleGuardian(phoneNumber: String) {
+        if (uiState.value.isSafeReturnActive) {
+            guardianManager.deactivateGuardian()
+        } else {
+            guardianManager.activateGuardian(phoneNumber)
+        }
+    }
+
+    fun sendEmergencyAlert() {
+        guardianManager.sendEmergencyAlert()
     }
 
     fun limpiarError() {
@@ -1012,8 +1052,9 @@ class NavigationViewModel(
         if (ubicacionesRecientes.size < 2) return 0.0
         
         // Usar las últimas 2 ubicaciones para calcular velocidad instantánea
-        val ultima = ubicacionesRecientes.last()
-        val penultima = ubicacionesRecientes[ubicacionesRecientes.size - 2]
+        val list = ubicacionesRecientes.toList()
+        val ultima = list.last()
+        val penultima = list[list.size - 2]
         
         val distancia = haversineDistance(
             penultima.latitud, penultima.longitud,
@@ -1049,7 +1090,6 @@ class NavigationViewModel(
 
     // ==================== TURN-BY-TURN & ARRIVAL LOGIC ====================
 
-    private var lastVibrationDistance: Double = Double.MAX_VALUE
     private var hasArrivedTriggered: Boolean = false
     
     // RIESGO 2: Distance Lock - evita vibraciones repetidas en el mismo bucket
@@ -1079,7 +1119,7 @@ class NavigationViewModel(
             // Verificar si hay historial suficiente
             if (ubicacionesRecientes.size >= 3) {
                 // Calcular movimiento reciente
-                val recentLocations = ubicacionesRecientes.takeLast(3)
+                val recentLocations = ubicacionesRecientes.toList().takeLast(3)
                 val totalMovement = recentLocations.zipWithNext { a, b ->
                     haversineDistance(a.latitud, a.longitud, b.latitud, b.longitud)
                 }.sum()
@@ -1153,41 +1193,45 @@ class NavigationViewModel(
      * Evita vibraciones repetidas cuando el GPS fluctúa
      */
     private fun procesarVibracionesProximidad(distanceToNextTurn: Double, isOffRoute: Boolean) {
+        if (!::safeHaptics.isInitialized) return
+
         // RIESGO 4: Silencio inteligente - no vibrar si está quieto
         if (ubicacionesRecientes.size >= 2) {
-            val recentLocations = ubicacionesRecientes.takeLast(2)
-            val movement = haversineDistance(
-                recentLocations[0].latitud, recentLocations[0].longitud,
-                recentLocations[1].latitud, recentLocations[1].longitud
-            )
-            if (movement < 0.5) {
-                // Usuario quieto - no vibrar
-                return
+            val lastTwo = ubicacionesRecientes.toList().takeLast(2)
+            if (lastTwo.size == 2) {
+                val movement = haversineDistance(
+                    lastTwo[0].latitud, lastTwo[0].longitud,
+                    lastTwo[1].latitud, lastTwo[1].longitud
+                )
+                if (movement < 0.5) return
             }
         }
         
-        // UX REDUNDANCY: Vibración + Visual intensificado si no hay haptics
-        if (isOffRoute && lastVibrationDistance > 100) {
-            safeHaptics.offRouteDetected()
-            lastVibrationDistance = 0.0
-            lastTriggeredDistanceBucket = null
+        if (isOffRoute) {
+            if (!wasOffRoute) {
+                safeHaptics.offRouteDetected()
+                wasOffRoute = true
+            }
             return
         }
-        
-        // RIESGO 2: Distance Lock - solo vibrar si cambia el bucket
+
+        // Si volvemos a la ruta después de estar fuera
+        if (wasOffRoute && !isOffRoute) {
+            safeHaptics.resetPriority()
+            wasOffRoute = false
+        }
+
+        // Sistema de cubetas (buckets) para evitar vibraciones repetidas por ruido de GPS
         val currentBucket = getDistanceBucket(distanceToNextTurn)
         
         if (currentBucket != lastTriggeredDistanceBucket) {
-            lastTriggeredDistanceBucket = currentBucket
-            
             when (currentBucket) {
                 20 -> safeHaptics.turnApproaching20m()
                 50 -> safeHaptics.turnApproaching50m()
                 100 -> safeHaptics.turnApproaching100m()
             }
+            lastTriggeredDistanceBucket = currentBucket
         }
-        
-        lastVibrationDistance = distanceToNextTurn
     }
 
     // ==================== FUNCIONES DE LLEGADA ====================
@@ -1196,13 +1240,12 @@ class NavigationViewModel(
      * Compartir llegada exitosa a contacto de confianza
      */
     fun shareArrival() {
-        // Vibración de celebración (con manejo de errores automático en SafeHaptics)
-        safeHaptics.arrivalCelebration()
+        if (::safeHaptics.isInitialized) {
+            safeHaptics.arrivalCelebration()
+        }
         
         val session = _uiState.value.safeReturnSession
         if (session != null) {
-            // Aquí se implementaría el envío real al contacto
-            // Por ahora, solo marcamos como completado
             viewModelScope.launch {
                 safeReturnPreferences.clearSession()
             }

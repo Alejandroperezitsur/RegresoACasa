@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.appcompat.content.res.AppCompatResources
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.domain.model.PuntoRuta
 import com.example.regresoacasa.domain.model.UbicacionUsuario
@@ -39,6 +40,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.compass.CompassOverlay
+import org.osmdroid.views.overlay.gestures.RotationGestureOverlay
+import org.osmdroid.views.overlay.ScaleBarOverlay
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.views.overlay.MapEventsOverlay
 
 private const val TAG = "MapaView"
 
@@ -51,7 +56,11 @@ fun MapaView(
     isFollowingUser: Boolean = true,
     isSelectingOnMap: Boolean = false,
     onFollowUserToggle: () -> Unit = {},
-    onMapMove: (Double, Double) -> Unit = { _, _ -> }
+    onMapMove: (Double, Double) -> Unit = { _, _ -> },
+    onLongPress: (Double, Double) -> Unit = { _, _ -> },
+    onMarkerClick: (String, String) -> Unit = { _, _ -> },
+    seleccion: UbicacionUsuario? = null,
+    mapStyle: String = "Normal"
 ) {
     val context = LocalContext.current
 
@@ -59,6 +68,7 @@ fun MapaView(
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var markerUsuario by remember { mutableStateOf<Marker?>(null) }
     var markerDestino by remember { mutableStateOf<Marker?>(null) }
+    var markerSeleccion by remember { mutableStateOf<Marker?>(null) }
     var polylineRuta by remember { mutableStateOf<Polyline?>(null) }
 
     val mapListener = remember {
@@ -113,17 +123,49 @@ fun MapaView(
                     MapView(ctx).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
+                        setBuiltInZoomControls(false) // Desactivar botones +/- que solapan
                         controller.setZoom(15.0)
-                        addMapListener(mapListener)
+                        
+                        // 1. Eventos de click y long press (Primero para que no sea bloqueado)
+                        val eventsReceiver = object : MapEventsReceiver {
+                            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
+                            override fun longPressHelper(p: GeoPoint?): Boolean {
+                                p?.let { 
+                                    Log.d(TAG, "Long press detectado en: ${it.latitude}, ${it.longitude}")
+                                    onLongPress(it.latitude, it.longitude) 
+                                }
+                                return true
+                            }
+                        }
+                        overlays.add(MapEventsOverlay(eventsReceiver))
 
+                        // 2. Gestos de rotación
+                        val rotationGestureOverlay = RotationGestureOverlay(this)
+                        rotationGestureOverlay.isEnabled = true
+                        overlays.add(rotationGestureOverlay)
+
+                        // 3. Brújula (Ajustada a la derecha, debajo del header)
                         try {
                             val compass = CompassOverlay(ctx, this)
                             compass.enableCompass()
+                            // Posicionada a la derecha, aprox 150dp desde arriba para no solapar el título
+                            val dm = ctx.resources.displayMetrics
+                            val xOffset = dm.widthPixels - (60 * dm.density)
+                            val yOffset = 140 * dm.density
+                            compass.setCompassCenter(xOffset, yOffset)
                             overlays.add(compass)
                         } catch (e: Exception) {
                             Log.w(TAG, "Error creando brújula", e)
                         }
 
+                        // 4. Barra de escala (Esquina inferior izquierda)
+                        val scaleBarOverlay = ScaleBarOverlay(this)
+                        scaleBarOverlay.setCentred(false)
+                        scaleBarOverlay.setAlignBottom(true)
+                        scaleBarOverlay.setScaleBarOffset(20, 20)
+                        overlays.add(scaleBarOverlay)
+
+                        addMapListener(mapListener)
                         mapViewInstance = this
                     }
                 } catch (e: Exception) {
@@ -134,6 +176,17 @@ fun MapaView(
             },
             update = { mapView ->
                 try {
+                    // Actualizar Estilo de Mapa
+                    val targetTileSource = when(mapStyle) {
+                        "Satélite" -> TileSourceFactory.USGS_SAT
+                        "Transporte" -> TileSourceFactory.PUBLIC_TRANSPORT
+                        "Topográfico" -> TileSourceFactory.OpenTopo
+                        else -> TileSourceFactory.MAPNIK
+                    }
+                    if (mapView.tileProvider.tileSource != targetTileSource) {
+                        mapView.setTileSource(targetTileSource)
+                    }
+
                     // Actualizar marcador de usuario
                     markerUsuario?.let {
                         try { mapView.overlays.remove(it) } catch (e: Exception) { }
@@ -145,6 +198,10 @@ fun MapaView(
                                 position = geoPoint
                                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                 title = "Tu ubicación"
+                                setOnMarkerClickListener { m, _ ->
+                                    onMarkerClick(m.title, m.snippet ?: "")
+                                    true
+                                }
                             }
                             mapView.overlays.add(marker)
                             markerUsuario = marker
@@ -165,6 +222,27 @@ fun MapaView(
                             markerDestino = marker
                         } catch (e: Exception) {
                             Log.w(TAG, "Error creando marcador destino", e)
+                        }
+                    }
+
+                    // Actualizar marcador de selección manual (Feedback visual)
+                    markerSeleccion?.let {
+                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                    }
+                    seleccion?.let { sel ->
+                        try {
+                            val geoPoint = GeoPoint(sel.latitud, sel.longitud)
+                            val marker = Marker(mapView).apply {
+                                position = geoPoint
+                                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                                title = "Punto seleccionado"
+                                icon = AppCompatResources.getDrawable(mapView.context, org.osmdroid.library.R.drawable.marker_default)
+                                alpha = 0.6f // Un poco transparente para indicar que es temporal
+                            }
+                            mapView.overlays.add(marker)
+                            markerSeleccion = marker
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Error creando marcador seleccion", e)
                         }
                     }
 
