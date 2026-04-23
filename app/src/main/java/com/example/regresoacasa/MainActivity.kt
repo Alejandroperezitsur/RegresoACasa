@@ -1,9 +1,11 @@
 package com.example.regresoacasa
 
 import android.Manifest
+import android.content.BroadcastReceiver
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -31,17 +33,35 @@ import com.example.regresoacasa.ui.screens.SearchScreen
 import com.example.regresoacasa.ui.theme.RegresoACasaTheme
 import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 import com.example.regresoacasa.ui.state.Pantalla
+import com.example.regresoacasa.data.location.SafetyForegroundService
 
 class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
+        private const val REQUEST_BATTERY_OPTIMIZATION = 1001
     }
 
     private val appModule by lazy { AppModule.getInstance(this) }
     
     private val viewModel: NavigationViewModel by viewModels {
         NavigationViewModel.Factory(appModule)
+    }
+    
+    private val criticalAlertReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                "com.example.regresoacasa.ACTION_CRITICAL_ALERT" -> {
+                    val reason = intent.getStringExtra("reason")
+                    Log.w(TAG, "Critical alert received: $reason")
+                    Toast.makeText(this@MainActivity, "Alerta crítica: $reason", Toast.LENGTH_LONG).show()
+                }
+                "com.example.regresoacasa.ACTION_RESTART_SERVICE" -> {
+                    Log.d(TAG, "Service restart requested")
+                    SafetyForegroundService.startService(applicationContext)
+                }
+            }
+        }
     }
 
     private val locationPermissionRequest = registerForActivityResult(
@@ -197,6 +217,32 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.cargarCasa()
+        
+        // Register safety broadcast receivers
+        registerReceiver(
+            criticalAlertReceiver,
+            IntentFilter().apply {
+                addAction("com.example.regresoacasa.ACTION_CRITICAL_ALERT")
+                addAction("com.example.regresoacasa.ACTION_RESTART_SERVICE")
+            }
+        )
+    }
+    
+    override fun onPause() {
+        super.onPause()
+        try {
+            unregisterReceiver(criticalAlertReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering receiver", e)
+        }
+    }
+    
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_BATTERY_OPTIMIZATION) {
+            // Battery optimization request completed
+            Log.d(TAG, "Battery optimization request completed")
+        }
     }
 
     private fun hasLocationPermission(): Boolean {
@@ -314,7 +360,7 @@ class MainActivity : ComponentActivity() {
     private fun showBackgroundPermissionDeniedDialog() {
         AlertDialog.Builder(this)
             .setTitle("Ubicación en background denegada")
-            .setMessage("La navegación en background no funcionará. Ve a Configuración para habilitar "ubicación siempre".")
+            .setMessage("La navegación en background no funcionará. Ve a Configuración para habilitar 'ubicación siempre'.")
             .setPositiveButton("Ir a Configuración") { _, _ ->
                 openAppSettings()
             }

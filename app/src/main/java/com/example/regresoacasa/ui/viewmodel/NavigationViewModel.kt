@@ -17,6 +17,15 @@ import com.example.regresoacasa.domain.utils.SmoothLocationTransition
 import com.example.regresoacasa.data.location.BatteryLevelListener
 import com.example.regresoacasa.data.location.BatteryMode
 import com.example.regresoacasa.data.safety.SafeReturnPreferences
+import com.example.regresoacasa.data.local.PreferencesManager
+import com.example.regresoacasa.data.safety.ReliableAlertDispatcher
+import com.example.regresoacasa.data.safety.SafetyWatchdog
+import com.example.regresoacasa.data.safety.BatteryOptimizationHelper
+import com.example.regresoacasa.data.safety.RiskEvaluator
+import com.example.regresoacasa.data.safety.SuspiciousSilenceDetector
+import com.example.regresoacasa.data.safety.AlertMessageFormatter
+import com.example.regresoacasa.data.safety.AdaptiveAlertThresholds
+import com.example.regresoacasa.data.location.SafetyForegroundService
 import com.example.regresoacasa.utils.SafeHaptics
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import kotlinx.coroutines.FlowPreview
@@ -76,6 +85,7 @@ class NavigationViewModel(
     // Estados de conexión y batería (Hardening)
     private lateinit var batteryLevelListener: BatteryLevelListener
     private lateinit var safeReturnPreferences: SafeReturnPreferences
+    private lateinit var preferencesManager: PreferencesManager
     private var batteryMonitoringJob: Job? = null
     private var currentBatteryMode: BatteryMode = BatteryMode.Normal
     private val LOW_BATTERY_INTERVAL = 10000L // 10s en modo ahorro
@@ -90,6 +100,15 @@ class NavigationViewModel(
     // Safety Trip Components
     private var currentSafeTripId: String? = null
     private var emergencyContacts: List<com.example.regresoacasa.data.safety.EmergencyContact> = emptyList()
+    
+    // New Safety System Components
+    private lateinit var reliableAlertDispatcher: ReliableAlertDispatcher
+    private lateinit var safetyWatchdog: SafetyWatchdog
+    private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
+    private lateinit var riskEvaluator: RiskEvaluator
+    private lateinit var suspiciousSilenceDetector: SuspiciousSilenceDetector
+    private lateinit var alertMessageFormatter: AlertMessageFormatter
+    private lateinit var adaptiveAlertThresholds: AdaptiveAlertThresholds
 
     init {
         cargarCasa()
@@ -108,9 +127,31 @@ class NavigationViewModel(
     fun initializeWithContext(context: Context) {
         batteryLevelListener = BatteryLevelListener(context)
         safeReturnPreferences = SafeReturnPreferences(context)
+        preferencesManager = PreferencesManager(context)
         safeHaptics = SafeHaptics(context)
         guardianManager = com.example.regresoacasa.data.safety.GuardianManager(context, safeHaptics)
         ttsManager = com.example.regresoacasa.utils.TtsManager(context)
+        
+        // Initialize new safety components
+        batteryOptimizationHelper = BatteryOptimizationHelper(context)
+        reliableAlertDispatcher = ReliableAlertDispatcher(
+            context,
+            (context.applicationContext as com.example.regresoacasa.RegresoACasaApp).database.alertDeliveryDao(),
+            viewModelScope
+        )
+        safetyWatchdog = SafetyWatchdog(
+            context,
+            preferencesManager,
+            viewModelScope
+        )
+        riskEvaluator = RiskEvaluator()
+        suspiciousSilenceDetector = SuspiciousSilenceDetector(viewModelScope)
+        alertMessageFormatter = AlertMessageFormatter(context)
+        adaptiveAlertThresholds = AdaptiveAlertThresholds()
+        
+        // Register SMS receivers
+        reliableAlertDispatcher.registerReceivers()
+        
         setupBatteryMonitoring()
 
         // Observar estado del Guardian
@@ -348,6 +389,21 @@ class NavigationViewModel(
         safeHaptics.resetPriority()
         lastInstructionSpoken = null
 
+        // Start safety foreground service
+        SafetyForegroundService.startService(appModule.appContext)
+        
+        // Start watchdog
+        safetyWatchdog.start()
+        
+        // Start silence detector
+        suspiciousSilenceDetector.startMonitoring()
+        
+        // Check battery optimization
+        if (::batteryOptimizationHelper.isInitialized && batteryOptimizationHelper.shouldShowBatteryOptimizationWarning()) {
+            // TODO: Show battery optimization warning in UI
+            Log.w("NavigationViewModel", "Battery optimization warning should be shown")
+        }
+
         // Iniciar tracking continuo
         iniciarTrackingContinuo()
 
@@ -432,6 +488,12 @@ class NavigationViewModel(
     }
 
     private fun actualizarUbicacionEnNavegacion(ubicacionRaw: UbicacionUsuario) {
+        // Update watchdog timestamp
+        if (::safetyWatchdog.isInitialized) {
+            safetyWatchdog.updateGpsTimestamp(System.currentTimeMillis())
+            safetyWatchdog.updateMonitorCycleTimestamp(System.currentTimeMillis())
+        }
+        
         // Actualizar Guardian
         if (::guardianManager.isInitialized) {
             guardianManager.updateLocation(ubicacionRaw)
@@ -651,14 +713,6 @@ class NavigationViewModel(
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
-        // FASE 10: Cancelar todos los jobs para evitar memory leaks
-        searchJob?.cancel()
-        locationTrackingJob?.cancel()
-        routeCalculationJob?.cancel()
-        batteryMonitoringJob?.cancel()
-    }
 
     private fun recalcularRutaSiEsNecesario() {
         val currentTime = System.currentTimeMillis()
@@ -792,6 +846,18 @@ class NavigationViewModel(
     }
 
     fun detenerNavegacion() {
+        // Stop safety components
+        if (::safetyWatchdog.isInitialized) {
+            safetyWatchdog.stop()
+        }
+        if (::suspiciousSilenceDetector.isInitialized) {
+            suspiciousSilenceDetector.stopMonitoring()
+        }
+        if (::reliableAlertDispatcher.isInitialized) {
+            reliableAlertDispatcher.unregisterReceivers()
+        }
+        SafetyForegroundService.stopService(appModule.appContext)
+        
         locationTrackingJob?.cancel()
         routeCalculationJob?.cancel()
         appModule.locationTrackingService.stopLocationUpdates()
@@ -998,6 +1064,17 @@ class NavigationViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        // Cleanup safety components
+        if (::reliableAlertDispatcher.isInitialized) {
+            reliableAlertDispatcher.unregisterReceivers()
+        }
+        if (::safetyWatchdog.isInitialized) {
+            safetyWatchdog.stop()
+        }
+        if (::suspiciousSilenceDetector.isInitialized) {
+            suspiciousSilenceDetector.stopMonitoring()
+        }
+        
         // Cancelar todos los jobs activos para evitar memory leaks
         searchJob?.cancel()
         locationTrackingJob?.cancel()
@@ -1014,6 +1091,7 @@ class NavigationViewModel(
         // CRÍTICO: Detener ForegroundService para Android 10+
         try {
             LocationForegroundService.stop(appModule.appContext)
+            SafetyForegroundService.stopService(appModule.appContext)
         } catch (e: Exception) {
             Log.e("NavigationViewModel", "Error stopping foreground service", e)
         }

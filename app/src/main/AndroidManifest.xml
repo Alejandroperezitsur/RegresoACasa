@@ -26,6 +26,9 @@
     <!-- Wake lock for background tracking -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
+    <!-- Battery optimization exclusion request -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    
     <!-- Legacy permissions -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />

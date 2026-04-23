@@ -176,7 +176,7 @@ class SafetyAlertEngine(
     /**
      * Limpia todas las alertas
      */
-    private fun clearAllAlerts() {
+    fun clearAllAlerts() {
         countdownJob?.cancel()
         _alertState.value = _alertState.value.copy(
             currentLevel = AlertLevel.NONE,

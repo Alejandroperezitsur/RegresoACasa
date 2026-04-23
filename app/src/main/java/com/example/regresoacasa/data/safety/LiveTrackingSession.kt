@@ -40,15 +40,36 @@ class LiveTrackingSession(
         val etaMinutes: Int,
         val status: TrackingStatus,
         val shareableLink: String,
-        val lastUpdateTime: Long
+        val lastUpdateTime: Long,
+        val gpsAccuracy: Float,
+        val currentSpeed: Float,
+        val batteryLevel: Int,
+        val signalQuality: SignalQuality,
+        val offlineEvents: List<OfflineEvent>
     )
 
     enum class TrackingStatus {
         ACTIVE,
         ARRIVED,
         ALERT,
+        CRITICAL,
         OFFLINE
     }
+
+    enum class SignalQuality {
+        EXCELLENT,
+        GOOD,
+        FAIR,
+        POOR,
+        NONE
+    }
+
+    data class OfflineEvent(
+        val timestamp: Long,
+        val location: UbicacionUsuario?,
+        val eventType: String,
+        val data: String
+    )
 
     /**
      * Inicia una sesión de tracking en vivo
@@ -70,7 +91,12 @@ class LiveTrackingSession(
             etaMinutes = etaMinutes,
             status = TrackingStatus.ACTIVE,
             shareableLink = shareableLink,
-            lastUpdateTime = System.currentTimeMillis()
+            lastUpdateTime = System.currentTimeMillis(),
+            gpsAccuracy = 0f,
+            currentSpeed = 0f,
+            batteryLevel = 100,
+            signalQuality = SignalQuality.GOOD,
+            offlineEvents = emptyList()
         )
 
         // Enviar notificación inicial a contactos
@@ -92,7 +118,41 @@ class LiveTrackingSession(
 
         _sessionState.value = currentState.copy(
             currentLocation = location,
-            lastUpdateTime = System.currentTimeMillis()
+            lastUpdateTime = System.currentTimeMillis(),
+            gpsAccuracy = location.precision ?: 0f
+        )
+    }
+
+    /**
+     * Actualiza métricas adicionales
+     */
+    fun updateMetrics(speed: Float, batteryLevel: Int, signalQuality: SignalQuality) {
+        val currentState = _sessionState.value ?: return
+        if (!currentState.isActive) return
+
+        _sessionState.value = currentState.copy(
+            currentSpeed = speed,
+            batteryLevel = batteryLevel,
+            signalQuality = signalQuality
+        )
+    }
+
+    /**
+     * Agrega un evento offline
+     */
+    fun addOfflineEvent(eventType: String, data: String, location: UbicacionUsuario? = null) {
+        val currentState = _sessionState.value ?: return
+        if (!currentState.isActive) return
+
+        val newEvent = OfflineEvent(
+            timestamp = System.currentTimeMillis(),
+            location = location,
+            eventType = eventType,
+            data = data
+        )
+
+        _sessionState.value = currentState.copy(
+            offlineEvents = currentState.offlineEvents + newEvent
         )
     }
 
@@ -189,6 +249,8 @@ class LiveTrackingSession(
             appendLine("📍 Ubicación: $mapsUrl")
             appendLine("🔗 Seguimiento: ${state.shareableLink}")
             appendLine("⏰ Hora: ${dateFormat.format(Date())}")
+            appendLine("📡 Señal: ${state.signalQuality}")
+            appendLine("🔋 Batería: ${state.batteryLevel}%")
         }
 
         contacts.forEach { contact ->
@@ -196,6 +258,37 @@ class LiveTrackingSession(
         }
 
         Log.d("LiveTrackingSession", "Actualización enviada a ${contacts.size} contactos")
+    }
+
+    /**
+     * Envía resumen de eventos offline cuando se reconecta
+     */
+    fun sendOfflineSummary(contacts: List<EmergencyContact>) {
+        val state = _sessionState.value ?: return
+        if (state.offlineEvents.isEmpty()) return
+
+        val message = buildString {
+            appendLine("🛡️ Resumen de Regreso Seguro (Offline)")
+            appendLine()
+            appendLine("Se restauró la conexión. Eventos durante el periodo offline:")
+            appendLine()
+            state.offlineEvents.forEach { event ->
+                appendLine("• ${event.eventType}: ${event.data}")
+                appendLine("  Hora: ${dateFormat.format(Date(event.timestamp))}")
+                if (event.location != null) {
+                    appendLine("  Ubicación: https://www.google.com/maps?q=${event.location.latitud},${event.location.longitud}")
+                }
+                appendLine()
+            }
+            appendLine("📍 Ubicación actual: ${state.currentLocation?.let { "https://www.google.com/maps?q=${it.latitud},${it.longitud}" } ?: "No disponible"}")
+            appendLine("🔗 Seguimiento: ${state.shareableLink}")
+        }
+
+        contacts.forEach { contact ->
+            sendSmsToContact(contact, message)
+        }
+
+        Log.d("LiveTrackingSession", "Resumen offline enviado a ${contacts.size} contactos")
     }
 
     /**

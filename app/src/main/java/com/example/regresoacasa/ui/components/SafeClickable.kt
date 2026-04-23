@@ -1,5 +1,6 @@
 package com.example.regresoacasa.ui.components
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.runtime.Composable
@@ -23,7 +24,7 @@ fun Modifier.safeClickable(
     val isPreview = LocalInspectionMode.current
     
     return this.then(
-        Modifier.clickable(
+        clickable(
             interactionSource = remember { MutableInteractionSource() },
             indication = null
         ) {
@@ -37,17 +38,5 @@ fun Modifier.safeClickable(
                 }
             }
         }
-    )
-}
-
-private fun Modifier.clickable(
-    interactionSource: MutableInteractionSource,
-    indication: androidx.compose.foundation.Indication?,
-    onClick: () -> Unit
-): Modifier {
-    return androidx.compose.foundation.clickable(
-        interactionSource = interactionSource,
-        indication = indication,
-        onClick = onClick
     )
 }

@@ -41,12 +41,15 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -69,16 +72,19 @@ fun EmergencyContactsScreen(
     viewModel: NavigationViewModel,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var contacts by remember { mutableStateOf<List<EmergencyContact>>(emptyList()) }
     var showAddDialog by remember { mutableStateOf(false) }
     var editingContact by remember { mutableStateOf<EmergencyContact?>(null) }
     var showDeleteDialog by remember { mutableStateOf<EmergencyContact?>(null) }
 
     // Load contacts from database
-    androidx.lifecycle.compose.LaunchedEffect(Unit) {
-        viewModel.viewModelScope.launch {
+    LaunchedEffect(Unit) {
+        scope.launch {
             try {
-                val contactEntities = viewModel.appModule.database.emergencyContactDao().getAllContacts().collect { entities ->
+                val appModule = AppModule.getInstance(context)
+                val contactEntities = appModule.database.emergencyContactDao().getAllContacts().collect { entities ->
                     contacts = entities.map { entity ->
                         EmergencyContact(
                             id = entity.id,
@@ -137,10 +143,11 @@ fun EmergencyContactsScreen(
                     onEditClick = { editingContact = it },
                     onDeleteClick = { showDeleteDialog = it },
                     onSetPrimary = { contact ->
-                        viewModel.viewModelScope.launch {
+                        scope.launch {
                             try {
-                                viewModel.appModule.database.emergencyContactDao().clearPrimaryContact()
-                                viewModel.appModule.database.emergencyContactDao().setPrimaryContact(contact.id)
+                                val appModule = AppModule.getInstance(context)
+                                appModule.database.emergencyContactDao().clearPrimaryContact()
+                                appModule.database.emergencyContactDao().setPrimaryContact(contact.id)
                             } catch (e: Exception) {
                                 // Handle error
                             }
@@ -160,8 +167,9 @@ fun EmergencyContactsScreen(
                 editingContact = null
             },
             onSave = { name, phone, relationship ->
-                viewModel.viewModelScope.launch {
+                scope.launch {
                     try {
+                        val appModule = AppModule.getInstance(context)
                         val entity = com.example.regresoacasa.data.local.entity.EmergencyContactEntity(
                             id = editingContact?.id ?: 0,
                             name = name,
@@ -170,9 +178,9 @@ fun EmergencyContactsScreen(
                             isPrimary = editingContact?.isPrimary ?: false
                         )
                         if (editingContact == null) {
-                            viewModel.appModule.database.emergencyContactDao().insertContact(entity)
+                            appModule.database.emergencyContactDao().insertContact(entity)
                         } else {
-                            viewModel.appModule.database.emergencyContactDao().updateContact(entity)
+                            appModule.database.emergencyContactDao().updateContact(entity)
                         }
                     } catch (e: Exception) {
                         // Handle error
@@ -190,9 +198,10 @@ fun EmergencyContactsScreen(
             contact = contact,
             onDismiss = { showDeleteDialog = null },
             onConfirm = {
-                viewModel.viewModelScope.launch {
+                scope.launch {
                     try {
-                        viewModel.appModule.database.emergencyContactDao().deleteContactById(contact.id)
+                        val appModule = AppModule.getInstance(context)
+                        appModule.database.emergencyContactDao().deleteContactById(contact.id)
                     } catch (e: Exception) {
                         // Handle error
                     }
