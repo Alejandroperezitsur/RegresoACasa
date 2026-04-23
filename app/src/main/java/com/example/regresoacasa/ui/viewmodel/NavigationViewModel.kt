@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import kotlin.math.*
 import kotlin.collections.ArrayDeque
@@ -84,6 +86,10 @@ class NavigationViewModel(
     // TTS Manager para instrucciones por voz
     private var ttsManager: com.example.regresoacasa.utils.TtsManager? = null
     private var lastInstructionSpoken: String? = null
+
+    // Safety Trip Components
+    private var currentSafeTripId: String? = null
+    private var emergencyContacts: List<com.example.regresoacasa.data.safety.EmergencyContact> = emptyList()
 
     init {
         cargarCasa()
@@ -434,6 +440,29 @@ class NavigationViewModel(
         val currentState = _uiState.value
         val ruta = currentState.rutaActual ?: return
 
+        // FASE 6: Threading real - mover cálculos GPS fuera del main thread
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.Default) {
+                    procesarUbicacionEnNavegacion(ubicacionRaw, currentState, ruta)
+                }
+            } catch (e: Exception) {
+                Log.e("NavigationViewModel", "Error procesando ubicación en navegación", e)
+                _uiState.update {
+                    it.copy(
+                        uiState = UiState.Error("Error de GPS: ${e.message}")
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun procesarUbicacionEnNavegacion(
+        ubicacionRaw: UbicacionUsuario,
+        currentState: MainUiState,
+        ruta: Ruta
+    ) {
+
         // ============ PIPELINE DE PROCESAMIENTO GPS (HARDENING) ============
         // ORDEN CRÍTICO: raw → filter → smooth → velocity → snap → state
         
@@ -620,6 +649,15 @@ class NavigationViewModel(
         if (isOffRoute && distanciaARuta > 100 && tiempoFueraDeRuta > 5000) {
             recalcularRutaSiEsNecesario()
         }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // FASE 10: Cancelar todos los jobs para evitar memory leaks
+        searchJob?.cancel()
+        locationTrackingJob?.cancel()
+        routeCalculationJob?.cancel()
+        batteryMonitoringJob?.cancel()
     }
 
     private fun recalcularRutaSiEsNecesario() {
@@ -1264,6 +1302,184 @@ class NavigationViewModel(
             )
         }
         detenerNavegacion()
+    }
+
+    // ==================== MODO REGRESO SEGURO ====================
+
+    /**
+     * Inicia un viaje seguro con monitoreo inteligente
+     * FASE 1: Activación de viaje
+     */
+    fun startSafeTrip(
+        destination: LugarFavorito,
+        estimatedDurationMinutes: Int,
+        contacts: List<com.example.regresoacasa.data.safety.EmergencyContact>
+    ) {
+        val tripId = UUID.randomUUID().toString()
+        currentSafeTripId = tripId
+        emergencyContacts = contacts
+
+        val ubicacionActual = _uiState.value.ubicacionActual
+        if (ubicacionActual == null) {
+            _uiState.update {
+                it.copy(
+                    uiState = UiState.Error("Ubicación no disponible", false)
+                )
+            }
+            return
+        }
+
+        // Guardar trip en base de datos
+        viewModelScope.launch {
+            try {
+                val tripEntity = com.example.regresoacasa.data.local.entity.TripEntity(
+                    tripId = tripId,
+                    startTime = System.currentTimeMillis(),
+                    destinationAddress = destination.direccion,
+                    destinationLat = destination.latitud,
+                    destinationLng = destination.longitud,
+                    startLat = ubicacionActual.latitud,
+                    startLng = ubicacionActual.longitud,
+                    expectedDurationMinutes = estimatedDurationMinutes,
+                    status = com.example.regresoacasa.data.local.entity.TripStatus.ACTIVE
+                )
+                appModule.database.tripDao().insertTrip(tripEntity)
+            } catch (e: Exception) {
+                Log.e("NavigationViewModel", "Error guardando trip", e)
+            }
+        }
+
+        // Iniciar SafetyForegroundService
+        com.example.regresoacasa.data.safety.SafetyForegroundService.startService(
+            appModule.appContext,
+            tripId,
+            destination.direccion,
+            estimatedDurationMinutes,
+            contacts
+        )
+
+        // Iniciar tracking de ubicación
+        iniciarTrackingContinuo()
+
+        // Calcular ruta al destino
+        val lugarDestino = Lugar(
+            id = destination.id,
+            nombre = destination.nombre,
+            direccion = destination.direccion,
+            latitud = destination.latitud,
+            longitud = destination.longitud
+        )
+        calcularRuta(lugarDestino, "foot-walking")
+
+        _uiState.update {
+            it.copy(
+                pantallaActual = Pantalla.NAVEGACION,
+                isSafeReturnActive = true
+            )
+        }
+
+        Log.d("NavigationViewModel", "Safe trip started: $tripId")
+    }
+
+    /**
+     * Detiene el viaje seguro actual
+     */
+    fun stopSafeTrip() {
+        currentSafeTripId?.let { tripId ->
+            viewModelScope.launch {
+                try {
+                    appModule.database.tripDao().updateTripStatus(
+                        tripId,
+                        com.example.regresoacasa.data.local.entity.TripStatus.COMPLETED.name,
+                        System.currentTimeMillis()
+                    )
+                } catch (e: Exception) {
+                    Log.e("NavigationViewModel", "Error actualizando trip", e)
+                }
+            }
+        }
+
+        com.example.regresoacasa.data.safety.SafetyForegroundService.stopService(appModule.appContext)
+        detenerNavegacion()
+
+        currentSafeTripId = null
+        emergencyContacts = emptyList()
+
+        _uiState.update {
+            it.copy(
+                isSafeReturnActive = false,
+                pantallaActual = Pantalla.MAP
+            )
+        }
+
+        Log.d("NavigationViewModel", "Safe trip stopped")
+    }
+
+    /**
+     * Botón de pánico - activa emergencia inmediata
+     * FASE 6: Botón de pánico real
+     */
+    fun triggerEmergency() {
+        Log.w("NavigationViewModel", "EMERGENCY TRIGGERED")
+        
+        // Enviar SMS inmediato a contactos
+        val location = _uiState.value.ubicacionActual
+        val message = if (location != null) {
+            "🚨 EMERGENCIA - Regreso Seguro\nNecesito ayuda urgente.\n📍 https://www.google.com/maps?q=${location.latitud},${location.longitud}"
+        } else {
+            "🚨 EMERGENCIA - Regreso Seguro\nNecesito ayuda urgente."
+        }
+
+        viewModelScope.launch {
+            emergencyContacts.forEach { contact ->
+                try {
+                    val smsManager = appModule.appContext.getSystemService(android.telephony.SmsManager::class.java)
+                    smsManager.sendTextMessage(contact.phoneNumber, null, message, null, null)
+                    Log.d("NavigationViewModel", "Emergency SMS sent to ${contact.name}")
+                } catch (e: Exception) {
+                    Log.e("NavigationViewModel", "Error sending emergency SMS", e)
+                }
+            }
+        }
+
+        // Notificar al servicio
+        com.example.regresoacasa.data.safety.SafetyForegroundService.triggerEmergency(appModule.appContext)
+
+        // Marcar trip como emergencia
+        currentSafeTripId?.let { tripId ->
+            viewModelScope.launch {
+                try {
+                    appModule.database.tripDao().updateTripStatus(
+                        tripId,
+                        com.example.regresoacasa.data.local.entity.TripStatus.EMERGENCY.name,
+                        System.currentTimeMillis()
+                    )
+                    appModule.database.tripDao().markAlertTriggered(tripId, "CRITICAL")
+                } catch (e: Exception) {
+                    Log.e("NavigationViewModel", "Error marking emergency", e)
+                }
+            }
+        }
+
+        // Feedback háptico
+        if (::safeHaptics.isInitialized) {
+            safeHaptics.guardianAlert()
+        }
+
+        _uiState.update {
+            it.copy(
+                uiState = UiState.Error("🚨 Alerta de emergencia enviada", false)
+            )
+        }
+    }
+
+    /**
+     * Usuario responde a alerta activa
+     */
+    fun respondToAlert() {
+        // Esto debería ser manejado por el SafetyAlertEngine
+        // Por ahora, simplemente logueamos
+        Log.d("NavigationViewModel", "User responded to alert")
     }
 
     class Factory(private val appModule: AppModule) : ViewModelProvider.Factory {

@@ -25,7 +25,10 @@ interface NominatimApiService {
         @Query("limit") limit: Int = 10,
         @Query("addressdetails") addressDetails: Int = 1,
         @Query("namedetails") nameDetails: Int = 1,
-        @Query("accept-language") acceptLanguage: String = "es"
+        @Query("accept-language") acceptLanguage: String = "es",
+        @Query("viewbox") viewbox: String = "-117.0,14.5,-86.0,32.7",
+        @Query("bounded") bounded: Int = 1,
+        @Query("countrycodes") countrycodes: String = "mx"
     ): Response<List<NominatimResult>>
     
     /**

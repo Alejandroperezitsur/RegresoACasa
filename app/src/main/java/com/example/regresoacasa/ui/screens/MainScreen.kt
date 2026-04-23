@@ -26,6 +26,9 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.HealthAndSafety
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -55,9 +58,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.filled.HealthAndSafety
 import androidx.compose.material.icons.filled.Layers
+import androidx.compose.material.icons.filled.Warning
 import com.example.regresoacasa.domain.model.Lugar
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.ui.components.MapaView
+import com.example.regresoacasa.ui.components.SpeedDial
+import com.example.regresoacasa.ui.components.SpeedDialItem
 import com.example.regresoacasa.ui.state.UiState
 import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
@@ -65,13 +71,56 @@ import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 fun MainScreen(
     viewModel: NavigationViewModel,
     onRequestPermission: () -> Unit,
+    onRequestSmsPermission: () -> Unit,
     onIrACasa: () -> Unit,
     onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
-    hasLocationPermission: Boolean
+    hasLocationPermission: Boolean,
+    hasSmsPermission: Boolean
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSettingsMenu by remember { mutableStateOf(false) }
+    var showGuardianDialog by remember { mutableStateOf(false) }
+
+    if (showGuardianDialog) {
+        var phoneNumber by remember { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { showGuardianDialog = false },
+            title = { Text("Configurar Guardian") },
+            text = {
+                Column {
+                    Text("Introduce el número de teléfono de tu contacto de confianza para recibir alertas por SMS.")
+                    androidx.compose.material3.OutlinedTextField(
+                        value = phoneNumber,
+                        onValueChange = { phoneNumber = it },
+                        label = { Text("Teléfono") },
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        singleLine = true,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone
+                        )
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (phoneNumber.isNotBlank()) {
+                            viewModel.toggleGuardian(phoneNumber)
+                            showGuardianDialog = false
+                        }
+                    }
+                ) {
+                    Text("Activar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGuardianDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
 
     if (showSettingsMenu) {
         AlertDialog(
@@ -177,36 +226,95 @@ fun MainScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Selector de Capas de Mapa
-                MapStyleSelector(
-                    currentStyle = uiState.mapStyle,
-                    onStyleSelected = { viewModel.cambiarEstiloMapa(it) }
-                )
-
-                // Botón Guardian (Emergencia)
-                FloatingActionButton(
-                    onClick = { viewModel.sendEmergencyAlert() },
-                    containerColor = if (uiState.isSafeReturnActive) Color.Red else Color.White,
-                    modifier = Modifier.size(40.dp),
-                    shape = CircleShape
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.HealthAndSafety,
-                        contentDescription = "Emergencia",
-                        tint = if (uiState.isSafeReturnActive) Color.White else Color(0xFFD32F2F),
-                        modifier = Modifier.size(24.dp)
-                    )
+                // FASE 4: Speed Dial con máximo 3 FABs visibles
+                val speedDialItems = buildList {
+                    add(SpeedDialItem(
+                        icon = Icons.Default.Layers,
+                        label = "Capas"
+                    ) {
+                        showSettingsMenu = true
+                    })
+                    add(SpeedDialItem(
+                        icon = Icons.Default.Search,
+                        label = "Buscar"
+                    ) {
+                        onBuscarDestino()
+                    })
+                    add(SpeedDialItem(
+                        icon = Icons.Default.LocationOn,
+                        label = "Mi ubicación"
+                    ) {
+                        if (hasLocationPermission) {
+                            viewModel.obtenerUbicacionUnica()
+                        } else {
+                            onRequestPermission()
+                        }
+                    })
+                    if (uiState.isSafeReturnActive) {
+                        add(SpeedDialItem(
+                            icon = Icons.Default.Warning,
+                            label = "Alerta"
+                        ) {
+                            viewModel.sendEmergencyAlert()
+                        })
+                    }
                 }
 
-                FloatingButtons(
-                    tieneCasa = uiState.casa != null,
-                    hasLocationPermission = hasLocationPermission,
-                    onRequestPermission = onRequestPermission,
-                    onMiUbicacion = { viewModel.obtenerUbicacionUnica() },
-                    onBuscarDestino = onBuscarDestino,
-                    onBuscarCasa = onBuscarCasa,
-                    onIrACasa = onIrACasa
+                SpeedDial(
+                    items = speedDialItems,
+                    mainFabColor = if (uiState.isSafeReturnActive) Color.Red else Color(0xFF1565C0)
                 )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Botón principal: Ir a Casa o Configurar Casa
+                if (uiState.casa != null) {
+                    Button(
+                        onClick = onIrACasa,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF1565C0)
+                        ),
+                        shape = RoundedCornerShape(28.dp),
+                        modifier = Modifier
+                            .height(56.dp)
+                            .shadow(8.dp, RoundedCornerShape(28.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Home,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Ir a Casa",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onBuscarCasa,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFFFF6F00)
+                        ),
+                        shape = RoundedCornerShape(28.dp),
+                        modifier = Modifier
+                            .height(56.dp)
+                            .shadow(8.dp, RoundedCornerShape(28.dp))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Configurar Casa",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.SemiBold
+                        )
+                        )
+                    }
+                }
             }
         } else {
             SelectionControls(
@@ -311,155 +419,6 @@ private fun HeaderSection(
     }
 }
 
-@Composable
-private fun MapStyleSelector(
-    currentStyle: String,
-    onStyleSelected: (String) -> Unit
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val styles = listOf("Normal", "Satélite", "Transporte", "Topográfico")
-
-    Column(horizontalAlignment = Alignment.End) {
-        AnimatedVisibility(
-            visible = expanded,
-            enter = fadeIn() + slideInVertically { it },
-            exit = fadeOut() + slideOutVertically { it }
-        ) {
-            Card(
-                modifier = Modifier.padding(bottom = 8.dp),
-                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                shape = RoundedCornerShape(12.dp)
-            ) {
-                Column(modifier = Modifier.padding(4.dp)) {
-                    styles.forEach { style ->
-                        TextButton(
-                            onClick = {
-                                onStyleSelected(style)
-                                expanded = false
-                            },
-                            modifier = Modifier.height(36.dp)
-                        ) {
-                            Text(
-                                text = style,
-                                color = if (currentStyle == style) Color(0xFF1565C0) else Color.DarkGray,
-                                fontWeight = if (currentStyle == style) FontWeight.Bold else FontWeight.Normal,
-                                style = MaterialTheme.typography.bodySmall
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        FloatingActionButton(
-            onClick = { expanded = !expanded },
-            containerColor = Color.White,
-            modifier = Modifier.size(40.dp),
-            shape = CircleShape
-        ) {
-            Icon(
-                imageVector = Icons.Default.Layers,
-                contentDescription = "Capas",
-                tint = Color(0xFF1565C0),
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun FloatingButtons(
-    tieneCasa: Boolean,
-    hasLocationPermission: Boolean,
-    onRequestPermission: () -> Unit,
-    onMiUbicacion: () -> Unit,
-    onBuscarDestino: () -> Unit,
-    onBuscarCasa: () -> Unit,
-    onIrACasa: () -> Unit
-) {
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Botón Buscar Destino (Nuevo)
-        FloatingActionButton(
-            onClick = onBuscarDestino,
-            containerColor = Color.White,
-            modifier = Modifier.size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = "Buscar destino",
-                tint = Color(0xFF1565C0)
-            )
-        }
-
-        // Botón mi ubicación
-        FloatingActionButton(
-            onClick = {
-                if (hasLocationPermission) onMiUbicacion() else onRequestPermission()
-            },
-            containerColor = Color.White,
-            modifier = Modifier.size(48.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.LocationOn,
-                contentDescription = "Mi ubicación",
-                tint = Color(0xFF1565C0)
-            )
-        }
-
-        // Botón principal: Ir a Casa o Configurar Casa
-        if (tieneCasa) {
-            Button(
-                onClick = onIrACasa,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF1565C0)
-                ),
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier
-                    .height(56.dp)
-                    .shadow(8.dp, RoundedCornerShape(28.dp))
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Home,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "Ir a Casa",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-            }
-        } else {
-            Button(
-                onClick = onBuscarCasa,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFFF6F00)
-                ),
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier
-                    .height(56.dp)
-                    .shadow(8.dp, RoundedCornerShape(28.dp))
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Add,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    "Configurar Casa",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.SemiBold
-                    )
-                )
-            }
-        }
-    }
-}
 
 @Composable
 private fun SelectionControls(

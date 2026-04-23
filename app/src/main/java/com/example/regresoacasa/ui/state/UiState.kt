@@ -104,5 +104,7 @@ enum class Pantalla {
     MAP,
     SEARCH,
     NAVEGACION,
-    FAVORITES
+    FAVORITES,
+    SAFETY,
+    EMERGENCY_CONTACTS
 }

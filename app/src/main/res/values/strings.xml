@@ -1,6 +1,7 @@
 <resources>
     <string name="app_name">RegresoACasa</string>
     <string name="navigation_service_description">Servicio de navegación activo para seguimiento de ruta</string>
+    <string name="safety_service_description">Servicio de monitoreo de seguridad activo para protección durante el viaje</string>
     <string name="location_permission_rationale">La aplicación necesita acceso a tu ubicación para calcular rutas y mostrar tu posición en el mapa.</string>
     <string name="location_permission_denied">Permiso de ubicación denegado. Algunas funciones no estarán disponibles.</string>
     <string name="open_settings">Abrir Configuración</string>

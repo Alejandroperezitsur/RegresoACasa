@@ -7,10 +7,12 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.example.regresoacasa.MainActivity
 import com.example.regresoacasa.R
@@ -55,6 +57,23 @@ class LocationForegroundService : Service() {
     private fun startTracking(intervalMillis: Long) {
         if (isTracking) return
         
+        // FASE 8: Validar permisos antes de ejecutar
+        val hasFineLocation = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        val hasCoarseLocation = ContextCompat.checkSelfPermission(
+            this,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        
+        if (!hasFineLocation && !hasCoarseLocation) {
+            Log.e(TAG, "SERVICE_ERROR: No hay permisos de ubicación. Deteniendo servicio.")
+            stopSelf()
+            return
+        }
+        
         isTracking = true
         
         // Crear notificación persistente
@@ -91,10 +110,12 @@ class LocationForegroundService : Service() {
             )
             Log.d(TAG, "Location tracking started")
         } catch (e: SecurityException) {
-            Log.e(TAG, "Security exception starting location updates", e)
+            Log.e(TAG, "SERVICE_ERROR: Security exception - permisos revocados", e)
             stopSelf()
+            // FASE 8: Notificar a la app que el servicio falló por permisos
+            sendPermissionErrorBroadcast()
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting location updates", e)
+            Log.e(TAG, "SERVICE_ERROR: Error starting location updates", e)
             stopSelf()
         }
     }
@@ -124,6 +145,13 @@ class LocationForegroundService : Service() {
             putExtra(EXTRA_LATITUDE, lat)
             putExtra(EXTRA_LONGITUDE, lon)
             putExtra(EXTRA_ACCURACY, accuracy)
+            setPackage(packageName)
+        }
+        sendBroadcast(intent)
+    }
+
+    private fun sendPermissionErrorBroadcast() {
+        val intent = Intent(ACTION_PERMISSION_ERROR).apply {
             setPackage(packageName)
         }
         sendBroadcast(intent)
@@ -179,6 +207,7 @@ class LocationForegroundService : Service() {
         const val ACTION_START_TRACKING = "com.example.regresoacasa.ACTION_START_TRACKING"
         const val ACTION_STOP_TRACKING = "com.example.regresoacasa.ACTION_STOP_TRACKING"
         const val ACTION_LOCATION_UPDATE = "com.example.regresoacasa.ACTION_LOCATION_UPDATE"
+        const val ACTION_PERMISSION_ERROR = "com.example.regresoacasa.ACTION_PERMISSION_ERROR"
         
         const val EXTRA_INTERVAL = "extra_interval"
         const val EXTRA_LATITUDE = "extra_latitude"

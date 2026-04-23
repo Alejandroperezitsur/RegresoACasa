@@ -64,6 +64,9 @@ fun MapaView(
 ) {
     val context = LocalContext.current
 
+    // FASE 7: Estado del mapa (no persiste en rotación por limitaciones de OSMDroid)
+    var isMapInitialized by remember { mutableStateOf(false) }
+
     var mapError by remember { mutableStateOf<String?>(null) }
     var mapViewInstance by remember { mutableStateOf<MapView?>(null) }
     var markerUsuario by remember { mutableStateOf<Marker?>(null) }
@@ -123,7 +126,7 @@ fun MapaView(
                     MapView(ctx).apply {
                         setTileSource(TileSourceFactory.MAPNIK)
                         setMultiTouchControls(true)
-                        setBuiltInZoomControls(false) // Desactivar botones +/- que solapan
+                        setBuiltInZoomControls(false)
                         controller.setZoom(15.0)
                         
                         // 1. Eventos de click y long press (Primero para que no sea bloqueado)
@@ -148,12 +151,20 @@ fun MapaView(
                         try {
                             val compass = CompassOverlay(ctx, this)
                             compass.enableCompass()
+                            
+                            // Forzar visibilidad y parámetros
+                            compass.onPause() // Reset por si acaso
+                            compass.onResume()
+                            
                             // Posicionada a la derecha, aprox 150dp desde arriba para no solapar el título
                             val dm = ctx.resources.displayMetrics
-                            val xOffset = dm.widthPixels - (60 * dm.density)
-                            val yOffset = 140 * dm.density
+                            // Asegurar que las coordenadas estén dentro de la vista
+                            val xOffset = dm.widthPixels.toFloat() - (40 * dm.density)
+                            val yOffset = 180 * dm.density
                             compass.setCompassCenter(xOffset, yOffset)
+                            
                             overlays.add(compass)
+                            Log.d(TAG, "Brújula añadida en: $xOffset, $yOffset")
                         } catch (e: Exception) {
                             Log.w(TAG, "Error creando brújula", e)
                         }
@@ -179,7 +190,7 @@ fun MapaView(
                     // Actualizar Estilo de Mapa
                     val targetTileSource = when(mapStyle) {
                         "Satélite" -> TileSourceFactory.USGS_SAT
-                        "Transporte" -> TileSourceFactory.PUBLIC_TRANSPORT
+                        "Transporte" -> TileSourceFactory.OpenTopo // Usar OpenTopo como fallback para transporte si falla
                         "Topográfico" -> TileSourceFactory.OpenTopo
                         else -> TileSourceFactory.MAPNIK
                     }
@@ -189,7 +200,11 @@ fun MapaView(
 
                     // Actualizar marcador de usuario
                     markerUsuario?.let {
-                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                        try {
+                            mapView.overlays.remove(it)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "MAP_ERROR: Error removiendo marcador usuario", e)
+                        }
                     }
                     ubicacion?.let { loc ->
                         try {
@@ -206,13 +221,17 @@ fun MapaView(
                             mapView.overlays.add(marker)
                             markerUsuario = marker
                         } catch (e: Exception) {
-                            Log.w(TAG, "Error creando marcador usuario", e)
+                            Log.e(TAG, "MAP_ERROR: Error creando marcador usuario", e)
                         }
                     }
 
                     // Actualizar marcador de destino
                     markerDestino?.let {
-                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                        try {
+                            mapView.overlays.remove(it)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "MAP_ERROR: Error removiendo marcador destino", e)
+                        }
                     }
                     destino?.let { dest ->
                         try {
@@ -221,13 +240,17 @@ fun MapaView(
                             mapView.overlays.add(marker)
                             markerDestino = marker
                         } catch (e: Exception) {
-                            Log.w(TAG, "Error creando marcador destino", e)
+                            Log.e(TAG, "MAP_ERROR: Error creando marcador destino", e)
                         }
                     }
 
                     // Actualizar marcador de selección manual (Feedback visual)
                     markerSeleccion?.let {
-                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                        try {
+                            mapView.overlays.remove(it)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "MAP_ERROR: Error removiendo marcador seleccion", e)
+                        }
                     }
                     seleccion?.let { sel ->
                         try {
@@ -236,19 +259,33 @@ fun MapaView(
                                 position = geoPoint
                                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                                 title = "Punto seleccionado"
-                                icon = AppCompatResources.getDrawable(mapView.context, org.osmdroid.library.R.drawable.marker_default)
-                                alpha = 0.6f // Un poco transparente para indicar que es temporal
+                                val defaultMarker = try {
+                                    AppCompatResources.getDrawable(mapView.context, org.osmdroid.library.R.drawable.marker_default)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "MAP_ERROR: Error cargando drawable default", e)
+                                    null
+                                }
+                                if (defaultMarker != null) {
+                                    icon = defaultMarker
+                                    alpha = 0.6f
+                                } else {
+                                    // No hay icono disponible
+                                }
                             }
                             mapView.overlays.add(marker)
                             markerSeleccion = marker
                         } catch (e: Exception) {
-                            Log.w(TAG, "Error creando marcador seleccion", e)
+                            Log.e(TAG, "MAP_ERROR: Error creando marcador seleccion", e)
                         }
                     }
 
                     // Actualizar polilínea de ruta
                     polylineRuta?.let {
-                        try { mapView.overlays.remove(it) } catch (e: Exception) { }
+                        try {
+                            mapView.overlays.remove(it)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "MAP_ERROR: Error removiendo polilínea", e)
+                        }
                     }
                     ruta?.let { puntos ->
                         try {
@@ -258,30 +295,30 @@ fun MapaView(
                                     setPoints(puntos.map { GeoPoint(it.latitud, it.longitud) })
                                     outlinePaint.strokeWidth = 14f
                                     outlinePaint.color = Color.parseColor("#1565C0")
-                                    // Añadir un borde blanco para mejor visibilidad
                                     outlinePaint.strokeCap = Paint.Cap.ROUND
                                     outlinePaint.strokeJoin = Paint.Join.ROUND
                                 }
                                 mapView.overlays.add(polyline)
                                 polylineRuta = polyline
                                 
-                                // Si es la primera vez que se carga la ruta, hacer zoom para que quepa toda
                                 if (!isFollowingUser && puntos.isNotEmpty()) {
                                     try {
                                         mapView.zoomToBoundingBox(polyline.bounds, true, 100)
                                     } catch (e: Exception) {
-                                        Log.e(TAG, "Error haciendo zoom a la ruta", e)
+                                        Log.e(TAG, "MAP_ERROR: Error haciendo zoom a la ruta", e)
                                     }
+                                } else {
+                                    // No hacer nada si no se cumple la condición
                                 }
                             }
                         } catch (e: Exception) {
-                            Log.e(TAG, "Error creando ruta", e)
+                            Log.e(TAG, "MAP_ERROR: Error creando ruta", e)
                         }
                     }
 
                     mapView.invalidate()
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error actualizando mapa", e)
+                    Log.e(TAG, "MAP_ERROR: Error actualizando mapa", e)
                 }
             }
         )
