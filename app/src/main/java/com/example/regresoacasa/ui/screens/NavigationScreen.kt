@@ -63,11 +63,9 @@ import com.example.regresoacasa.ui.state.SystemFeedbackState
 import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
 /**
- * NavigationScreen v2.0 - UI Mínima según especificación de producto
- * Las 3 cosas que el usuario ve SIEMPRE:
- * 1. Instrucción actual grande
- * 2. Distancia a próxima maniobra
- * 3. Barra de progreso
+ * NavigationScreen v3.0 - FASE 7: Modo Foco UX
+ * Durante navegación: SOLO mapa, ruta, botón cancelar, info básica
+ * Eliminados elementos secundarios y cards innecesarios
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -82,10 +80,10 @@ fun NavigationScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Navegación") },
+                title = { Text("Navegando") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Volver")
+                        Icon(Icons.Default.ArrowBack, "Cancelar")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -101,7 +99,7 @@ fun NavigationScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Mapa (contexto secundario, 40% de atención)
+            // Mapa (contexto principal)
             val destinoFavorito = navigationState.destination?.let { 
                 com.example.regresoacasa.domain.model.LugarFavorito(
                     id = it.id,
@@ -120,27 +118,32 @@ fun NavigationScreen(
                 onFollowUserToggle = { viewModel.toggleFollowUser() }
             )
 
-            // UI Mínima - Capa principal
+            // FASE 7: UI Mínima - SOLO lo esencial
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(16.dp),
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
-                // BANNER DE ESTADO (Sistema de Confianza)
-                StatusBanner(
-                    connectionState = connectionState,
-                    isOffRoute = navigationState.isOffRoute,
-                    isRecalculating = uiState.estaCalculandoRuta,
-                    hasGpsSignal = uiState.hasGpsSignal,
-                    gpsAccuracy = uiState.gpsAccuracy,
-                    isSafeReturnActive = uiState.isSafeReturnActive,
-                    systemFeedback = navigationState.systemFeedback
-                )
+                // BANNER DE ESTADO (Solo si hay problema)
+                if (connectionState !is ConnectionState.Connected || 
+                    uiState.estaCalculandoRuta || 
+                    navigationState.isOffRoute ||
+                    !uiState.hasGpsSignal) {
+                    StatusBanner(
+                        connectionState = connectionState,
+                        isOffRoute = navigationState.isOffRoute,
+                        isRecalculating = uiState.estaCalculandoRuta,
+                        hasGpsSignal = uiState.hasGpsSignal,
+                        gpsAccuracy = uiState.gpsAccuracy,
+                        isSafeReturnActive = uiState.isSafeReturnActive,
+                        systemFeedback = navigationState.systemFeedback
+                    )
+                }
 
                 Spacer(modifier = Modifier.weight(1f))
 
-                // CARD PRINCIPAL - Las 3 cosas que el usuario ve SIEMPRE
+                // CARD PRINCIPAL - Las 3 cosas esenciales
                 TurnByTurnCard(
                     instruction = navigationState.currentInstruction?.textoCorto ?: "Continúa recto",
                     distance = navigationState.currentInstruction?.distanciaFormateada ?: "${navigationState.remainingDistance.toInt()} m",
@@ -149,9 +152,8 @@ fun NavigationScreen(
                     isImminent = navigationState.distanceToNextTurn < 50
                 )
 
-                // Info secundaria (Guardian, tiempo total)
-                SecondaryInfoRow(
-                    isSafeReturnActive = uiState.isSafeReturnActive,
+                // FASE 7: Info básica simplificada (eliminado Guardian, modo, etc.)
+                SimpleInfoRow(
                     navigationState = navigationState
                 )
             }
@@ -423,6 +425,53 @@ private fun SecondaryInfoRow(
                         color = Color.Black
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * FASE 7: SimpleInfoRow - Info básica simplificada
+ * Solo muestra tiempo y distancia restante
+ */
+@Composable
+private fun SimpleInfoRow(
+    navigationState: com.example.regresoacasa.domain.model.NavigationState
+) {
+    val remainingDuration = navigationState.remainingDuration
+    val remainingDistance = navigationState.remainingDistance
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.9f)),
+        shape = RoundedCornerShape(12.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val minutos = (remainingDuration / 60).toInt()
+            val distanciaKm = remainingDistance / 1000
+
+            Column {
+                Text("Tiempo", fontSize = 11.sp, color = Color.Gray)
+                Text("$minutos min", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            }
+
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Distancia", fontSize = 11.sp, color = Color.Gray)
+                Text(
+                    if (distanciaKm >= 1) "%.1f km".format(distanciaKm) else "${remainingDistance.toInt()} m",
+                    fontSize = 16.sp, 
+                    fontWeight = FontWeight.Bold, 
+                    color = Color.Black
+                )
             }
         }
     }

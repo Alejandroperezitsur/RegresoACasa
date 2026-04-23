@@ -28,6 +28,8 @@ import com.example.regresoacasa.data.safety.AdaptiveAlertThresholds
 import com.example.regresoacasa.data.location.SafetyForegroundService
 import com.example.regresoacasa.utils.SafeHaptics
 import com.example.regresoacasa.domain.model.UbicacionUsuario
+import com.example.regresoacasa.utils.AnalyticsLogger
+import com.example.regresoacasa.domain.utils.FallbackRoute
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -100,6 +102,9 @@ class NavigationViewModel(
     // Safety Trip Components
     private var currentSafeTripId: String? = null
     private var emergencyContacts: List<com.example.regresoacasa.data.safety.EmergencyContact> = emptyList()
+    
+    // FASE 4: SafeClickHandler para prevenir spam
+    private val safeClickHandler = com.example.regresoacasa.ui.components.SafeClickHandler()
     
     // New Safety System Components
     private lateinit var reliableAlertDispatcher: ReliableAlertDispatcher
@@ -371,58 +376,78 @@ class NavigationViewModel(
     }
 
     fun iniciarNavegacionConDestino(destino: Lugar, modo: String = "foot-walking") {
-        // Feedback háptico: Navegación iniciada (con fallback visual)
-        safeHaptics.navigationStarted()
-        
-        // FASE 1: UX REDUNDANCY - Si no hay vibración, mostrar banner en UI
-        if (!isHapticsAvailable) {
+        // FASE 2: Validación de API Key antes de iniciar navegación
+        if (!(appModule.appContext as com.example.regresoacasa.RegresoACasaApp).isApiKeyValid) {
             _uiState.update { 
                 it.copy(
+                    uiState = UiState.Error("API Key inválida. Configúrala en local.properties", false)
+                ) 
+            }
+            AnalyticsLogger.logApiKeyInvalid()
+            return
+        }
+        
+        // FASE 4: SafeClick - Prevenir spam
+        if (!safeClickHandler.safeClick {
+            // Feedback háptico: Navegación iniciada (con fallback visual)
+            safeHaptics.navigationStarted()
+        
+            // FASE 1: UX REDUNDANCY - Si no hay vibración, mostrar banner en UI
+            if (!isHapticsAvailable) {
+                _uiState.update { 
+                    it.copy(
+                        navigationState = it.navigationState.copy(
+                            systemFeedback = SystemFeedbackState.HapticsUnavailable
+                        )
+                    ) 
+                }
+            }
+            
+            // Reset de prioridad de vibraciones al iniciar navegación
+            safeHaptics.resetPriority()
+            lastInstructionSpoken = null
+
+            // Start safety foreground service
+            SafetyForegroundService.startService(appModule.appContext)
+            
+            // Start watchdog
+            safetyWatchdog.start()
+            
+            // Start silence detector
+            suspiciousSilenceDetector.startMonitoring()
+            
+            // Check battery optimization
+            if (::batteryOptimizationHelper.isInitialized && batteryOptimizationHelper.shouldShowBatteryOptimizationWarning()) {
+                // TODO: Show battery optimization warning in UI
+                Log.w("NavigationViewModel", "Battery optimization warning should be shown")
+            }
+
+            // Iniciar tracking continuo
+            iniciarTrackingContinuo()
+
+            val lugarDestino = destino
+
+            _uiState.update { 
+                it.copy(
+                    pantallaActual = Pantalla.NAVEGACION,
                     navigationState = it.navigationState.copy(
-                        systemFeedback = SystemFeedbackState.HapticsUnavailable
+                        startTime = System.currentTimeMillis(),
+                        hasArrived = false,
+                        isFollowingUser = true,
+                        destination = lugarDestino
                     )
                 ) 
             }
+
+            // Calcular ruta inicial
+            calcularRuta(lugarDestino, modo)
+            
+            // FASE 10: Log evento
+            AnalyticsLogger.logNavigationStarted(destino.nombre)
+        }) {
+            // Click bloqueado por cooldown
+            Log.d("NavigationViewModel", "Click bloqueado por cooldown")
         }
-        
-        // Reset de prioridad de vibraciones al iniciar navegación
-        safeHaptics.resetPriority()
-        lastInstructionSpoken = null
-
-        // Start safety foreground service
-        SafetyForegroundService.startService(appModule.appContext)
-        
-        // Start watchdog
-        safetyWatchdog.start()
-        
-        // Start silence detector
-        suspiciousSilenceDetector.startMonitoring()
-        
-        // Check battery optimization
-        if (::batteryOptimizationHelper.isInitialized && batteryOptimizationHelper.shouldShowBatteryOptimizationWarning()) {
-            // TODO: Show battery optimization warning in UI
-            Log.w("NavigationViewModel", "Battery optimization warning should be shown")
-        }
-
-        // Iniciar tracking continuo
-        iniciarTrackingContinuo()
-
-        val lugarDestino = destino
-
-        _uiState.update { 
-            it.copy(
-                pantallaActual = Pantalla.NAVEGACION,
-                navigationState = it.navigationState.copy(
-                    startTime = System.currentTimeMillis(),
-                    hasArrived = false,
-                    isFollowingUser = true,
-                    destination = lugarDestino
-                )
-            ) 
-        }
-
-        // Calcular ruta inicial
-        calcularRuta(lugarDestino, modo)
     }
 
     private fun iniciarTrackingContinuo(intervalMillis: Long = NORMAL_INTERVAL) {
@@ -780,7 +805,7 @@ class NavigationViewModel(
                             val ruta = result.data
                             lastRouteCalculation = System.currentTimeMillis()
                             
-                            val navigationState = NavigationState(
+                            val navigationState = com.example.regresoacasa.domain.model.NavigationState(
                                 userLocation = puntoOrigen,
                                 route = ruta,
                                 destination = destino,
@@ -808,6 +833,7 @@ class NavigationViewModel(
                             safeHaptics.routeRecalculated()
                         }
                         is com.example.regresoacasa.domain.model.ApiResult.Error -> {
+                            // FASE 3: Fallback route cuando falla API
                             val errorType = when (result.error) {
                                 is com.example.regresoacasa.domain.model.ApiError.InvalidApiKey -> ErrorType.API_KEY_INVALID
                                 is com.example.regresoacasa.domain.model.ApiError.NoInternet -> ErrorType.NO_INTERNET
@@ -815,6 +841,46 @@ class NavigationViewModel(
                                 is com.example.regresoacasa.domain.model.ApiError.ServerError -> ErrorType.SERVER_ERROR
                                 is com.example.regresoacasa.domain.model.ApiError.NotFound -> ErrorType.NO_ROUTE
                                 else -> ErrorType.API_ERROR
+                            }
+                            
+                            // FASE 3: Usar fallback route si es error de red/servidor
+                            if (result.error is com.example.regresoacasa.domain.model.ApiError.NoInternet || 
+                                result.error is com.example.regresoacasa.domain.model.ApiError.Timeout ||
+                                result.error is com.example.regresoacasa.domain.model.ApiError.ServerError) {
+                                
+                                AnalyticsLogger.logRouteFailed(result.error.javaClass.simpleName)
+                                
+                                val fallbackRuta = FallbackRoute.fallbackRoute(
+                                    puntoOrigen.latitud, puntoOrigen.longitud,
+                                    puntoDestino.latitud, puntoDestino.longitud
+                                )
+                                
+                                val navigationState = com.example.regresoacasa.domain.model.NavigationState(
+                                    userLocation = puntoOrigen,
+                                    route = fallbackRuta,
+                                    destination = destino,
+                                    remainingDistance = fallbackRuta.distanciaMetros,
+                                    remainingDuration = fallbackRuta.duracionSegundos,
+                                    transportMode = modo,
+                                    isOffRoute = false,
+                                    distanceToRoute = 0.0,
+                                    isFollowingUser = true,
+                                    lastRecalculation = System.currentTimeMillis()
+                                )
+                                
+                                _uiState.update {
+                                    it.copy(
+                                        rutaActual = fallbackRuta,
+                                        navigationState = navigationState,
+                                        estaCalculandoRuta = false,
+                                        uiState = UiState.Success(fallbackRuta),
+                                        navigationUiState = NavigationUiState.Navigating(navigationState),
+                                        connectionState = ConnectionState.NoInternet
+                                    )
+                                }
+                                
+                                AnalyticsLogger.logNoInternet()
+                                return@withLock
                             }
 
                             _uiState.update {

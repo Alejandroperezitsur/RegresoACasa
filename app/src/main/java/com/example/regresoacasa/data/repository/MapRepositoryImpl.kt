@@ -123,18 +123,16 @@ class MapRepositoryImpl(
                 }
             } catch (e: UnknownHostException) {
                 Log.e("MapRepository", "No internet connection", e)
-                throw AppError.NoInternet
+                throw Exception("No internet", e)
             } catch (e: SocketTimeoutException) {
                 Log.e("MapRepository", "Request timeout", e)
-                throw AppError.Timeout()
+                throw Exception("Timeout", e)
             } catch (e: RateLimitException) {
                 Log.e("MapRepository", "Rate limit exceeded", e)
                 throw e
-            } catch (e: AppError) {
-                throw e
             } catch (e: Exception) {
                 Log.e("MapRepository", "Error searching places", e)
-                throw AppError.Unknown(e.message ?: "Unknown error", e)
+                throw e
             }
         }
     }
@@ -346,18 +344,16 @@ class MapRepositoryImpl(
                 }
             } catch (e: UnknownHostException) {
                 Log.e("MapRepository", "No internet connection", e)
-                throw AppError.NoInternet
+                throw Exception("No internet", e)
             } catch (e: SocketTimeoutException) {
                 Log.e("MapRepository", "Request timeout", e)
-                throw AppError.Timeout()
+                throw Exception("Timeout", e)
             } catch (e: RateLimitException) {
                 Log.e("MapRepository", "Rate limit exceeded", e)
                 throw e // Re-throw to trigger retry
-            } catch (e: AppError) {
-                throw e
             } catch (e: Exception) {
                 Log.e("MapRepository", "Error calculating route", e)
-                throw AppError.Unknown(e.message ?: "Unknown error", e)
+                throw e
             }
         }
     }

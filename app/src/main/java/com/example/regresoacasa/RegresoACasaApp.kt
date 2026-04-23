@@ -25,9 +25,18 @@ class RegresoACasaApp : Application() {
 
     lateinit var database: AppDatabase
         private set
+    
+    var isApiKeyValid: Boolean = false
+        private set
 
     override fun onCreate() {
         super.onCreate()
+        
+        // FASE 2: Validación de API Key - ANTI-FALLO SILENCIOSO
+        isApiKeyValid = validateApiKey()
+        if (!isApiKeyValid) {
+            Timber.e("API KEY INVÁLIDA - Navegación bloqueada")
+        }
         
         // Initialize Timber for structured logging
         if (BuildConfig.DEBUG) {
@@ -125,5 +134,16 @@ class RegresoACasaApp : Application() {
                 FirebaseCrashlytics.getInstance().log(message)
             }
         }
+    }
+    
+    /**
+     * FASE 2: Validación de API Key - ANTI-FALLO SILENCIOSO
+     * Valida que la API key de OpenRouteService esté configurada correctamente
+     */
+    private fun validateApiKey(): Boolean {
+        val key = BuildConfig.ORS_API_KEY
+        val isValid = key.isNotBlank() && key.length > 40
+        Timber.d("API Key validation: ${if (isValid) "VALID" else "INVALID"} (length: ${key.length})")
+        return isValid
     }
 }
