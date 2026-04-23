@@ -7,6 +7,9 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.regresoacasa.data.local.AppDatabase
+import com.example.regresoacasa.data.local.MIGRATION_5_6
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import timber.log.Timber
 import java.io.File
 import java.io.FileWriter
 import java.text.SimpleDateFormat
@@ -26,12 +29,27 @@ class RegresoACasaApp : Application() {
     override fun onCreate() {
         super.onCreate()
         
+        // Initialize Timber for structured logging
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        } else {
+            Timber.plant(CrashlyticsTree())
+        }
+        
+        // Initialize Firebase Crashlytics
+        try {
+            FirebaseCrashlytics.getInstance().setCustomKey("app_version", BuildConfig.VERSION_NAME)
+            FirebaseCrashlytics.getInstance().setCustomKey("build_type", if (BuildConfig.DEBUG) "debug" else "release")
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to initialize Crashlytics")
+        }
+        
         database = Room.databaseBuilder(
             applicationContext,
             AppDatabase::class.java,
             "regreso_a_casa_db"
         )
-        .addMigrations(MIGRATION_4_5)
+        .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
         .build()
         
         // Verificar si hay un error previo guardado
@@ -39,11 +57,11 @@ class RegresoACasaApp : Application() {
         if (errorFile.exists()) {
             try {
                 val errorContent = errorFile.readText()
-                Log.e(TAG, "Error previo encontrado: $errorContent")
+                Timber.e("Error previo encontrado: $errorContent")
                 // Limpiar el archivo
                 errorFile.delete()
             } catch (e: Exception) {
-                Log.e(TAG, "Error leyendo archivo de crash", e)
+                Timber.e(e, "Error leyendo archivo de crash")
             }
         }
         
@@ -52,7 +70,14 @@ class RegresoACasaApp : Application() {
             val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
             val errorMsg = "$timestamp | ${throwable.javaClass.simpleName}: ${throwable.message}\n${Log.getStackTraceString(throwable)}"
             
-            Log.e(TAG, "Excepción no controlada: $errorMsg", throwable)
+            Timber.e(throwable, "Excepción no controlada: $errorMsg")
+            
+            // Report to Crashlytics
+            try {
+                FirebaseCrashlytics.getInstance().recordException(throwable)
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to report to Crashlytics")
+            }
             
             // Guardar error en archivo
             try {
@@ -60,11 +85,11 @@ class RegresoACasaApp : Application() {
                     writer.write(errorMsg)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error guardando crash", e)
+                Timber.e(e, "Error guardando crash")
             }
         }
         
-        Log.d(TAG, "Aplicación iniciada")
+        Timber.d("Aplicación iniciada")
     }
 
     private val MIGRATION_4_5 = object : Migration(4, 5) {
@@ -85,6 +110,20 @@ class RegresoACasaApp : Application() {
                     tripId TEXT
                 )
             """)
+        }
+    }
+    
+    private class CrashlyticsTree : Timber.Tree() {
+        override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+            if (priority == Log.VERBOSE || priority == Log.DEBUG) {
+                return
+            }
+            
+            if (t != null) {
+                FirebaseCrashlytics.getInstance().recordException(t)
+            } else {
+                FirebaseCrashlytics.getInstance().log(message)
+            }
         }
     }
 }

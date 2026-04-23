@@ -94,6 +94,14 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     ksp("androidx.room:room-compiler:2.6.1")
     implementation(libs.kotlinx.coroutines.play.services)
+    
+    // Structured logging
+    implementation("com.jakewharton.timber:timber:5.0.1")
+    
+    // Firebase Crashlytics
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-crashlytics")
+    
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

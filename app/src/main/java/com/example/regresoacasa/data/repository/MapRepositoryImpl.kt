@@ -5,12 +5,15 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.example.regresoacasa.data.local.CachedRouteDao
 import com.example.regresoacasa.data.local.LugarFavoritoDao
+import com.example.regresoacasa.data.local.entity.CachedRouteEntity
 import com.example.regresoacasa.data.local.entity.LugarFavoritoEntity
 import com.example.regresoacasa.data.remote.NominatimApiService
 import com.example.regresoacasa.data.remote.OrsApiService
 import com.example.regresoacasa.domain.model.ApiError
 import com.example.regresoacasa.domain.model.ApiResult
+import com.example.regresoacasa.domain.model.AppError
 import com.example.regresoacasa.domain.model.InstruccionNavegacion
 import com.example.regresoacasa.domain.model.TipoManiobra
 import com.example.regresoacasa.domain.model.Lugar
@@ -21,10 +24,12 @@ import com.example.regresoacasa.domain.model.UbicacionUsuario
 import com.example.regresoacasa.domain.model.toApiResult
 import com.example.regresoacasa.domain.repository.MapRepository
 import com.example.regresoacasa.domain.utils.InstructionTranslator
+import com.example.regresoacasa.domain.utils.retryWithBackoffOnError
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
+import com.google.gson.Gson
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -39,10 +44,14 @@ import kotlin.coroutines.resumeWithException
 class MapRepositoryImpl(
     private val context: Context,
     private val lugarFavoritoDao: LugarFavoritoDao,
+    private val cachedRouteDao: CachedRouteDao,
     private val nominatimApi: NominatimApiService,
     private val orsApi: OrsApiService,
     private val apiKey: String
 ) : MapRepository {
+    
+    private val gson = Gson()
+    private val ROUTE_CACHE_TTL = 24 * 60 * 60 * 1000L // 24 hours
 
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
@@ -70,9 +79,14 @@ class MapRepositoryImpl(
     }
 
     override suspend fun buscarLugares(query: String): ApiResult<List<Lugar>> {
-        return retryWithBackoff(maxRetries = 3, initialDelay = 1000) {
+        return retryWithBackoffOnError(
+            times = 3,
+            initialDelay = 1000,
+            factor = 2.0,
+            shouldRetry = { it is UnknownHostException || it is SocketTimeoutException }
+        ) {
             try {
-                withTimeout(30000) { // 30 segundos timeout
+                withTimeout(30000) {
                     val response = nominatimApi.searchAddress(query)
                     
                     when {
@@ -109,16 +123,18 @@ class MapRepositoryImpl(
                 }
             } catch (e: UnknownHostException) {
                 Log.e("MapRepository", "No internet connection", e)
-                ApiResult.Error(ApiError.NoInternet)
+                throw AppError.NoInternet
             } catch (e: SocketTimeoutException) {
                 Log.e("MapRepository", "Request timeout", e)
-                ApiResult.Error(ApiError.Timeout)
+                throw AppError.Timeout()
             } catch (e: RateLimitException) {
                 Log.e("MapRepository", "Rate limit exceeded", e)
-                throw e // Re-throw to trigger retry
+                throw e
+            } catch (e: AppError) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MapRepository", "Error searching places", e)
-                ApiResult.Error(ApiError.Unknown(e))
+                throw AppError.Unknown(e.message ?: "Unknown error", e)
             }
         }
     }
@@ -204,7 +220,42 @@ class MapRepositoryImpl(
             return ApiResult.Error(ApiError.InvalidApiKey)
         }
         
-        return retryWithBackoff(maxRetries = 3, initialDelay = 1000) {
+        // Check cache first
+        val cacheKey = CachedRouteEntity.generateKey(modo, origen.latitud, origen.longitud, destino.latitud, destino.longitud)
+        val cachedRoute = cachedRouteDao.getRouteByKey(cacheKey, System.currentTimeMillis() - ROUTE_CACHE_TTL)
+        if (cachedRoute != null) {
+            Log.d("MapRepository", "Using cached route for $cacheKey")
+            try {
+                val ruta = gson.fromJson(cachedRoute.data, Ruta::class.java)
+                return ApiResult.Success(ruta)
+            } catch (e: Exception) {
+                Log.e("MapRepository", "Error parsing cached route", e)
+                // Continue to fetch from API
+            }
+        }
+        
+        // Check for similar route (within 100m)
+        val similarRoute = cachedRouteDao.findSimilarRoute(
+            origen.latitud, origen.longitud,
+            destino.latitud, destino.longitud,
+            System.currentTimeMillis() - ROUTE_CACHE_TTL
+        )
+        if (similarRoute != null) {
+            Log.d("MapRepository", "Using similar cached route")
+            try {
+                val ruta = gson.fromJson(similarRoute.data, Ruta::class.java)
+                return ApiResult.Success(ruta)
+            } catch (e: Exception) {
+                Log.e("MapRepository", "Error parsing similar cached route", e)
+            }
+        }
+        
+        return retryWithBackoffOnError(
+            times = 3,
+            initialDelay = 1000,
+            factor = 2.0,
+            shouldRetry = { it is UnknownHostException || it is SocketTimeoutException }
+        ) {
             try {
                 withTimeout(30000) { // 30 segundos timeout
                     val start = "${origen.longitud},${origen.latitud}"
@@ -270,22 +321,43 @@ class MapRepositoryImpl(
                                 puntos = puntos,
                                 instrucciones = instrucciones
                             )
+                            
+                            // Cache the route
+                            try {
+                                val routeJson = gson.toJson(ruta)
+                                val cachedEntity = CachedRouteEntity(
+                                    key = cacheKey,
+                                    data = routeJson,
+                                    timestamp = System.currentTimeMillis(),
+                                    profile = modo,
+                                    startLat = origen.latitud,
+                                    startLng = origen.longitud,
+                                    endLat = destino.latitud,
+                                    endLng = destino.longitud
+                                )
+                                cachedRouteDao.insertRoute(cachedEntity)
+                            } catch (e: Exception) {
+                                Log.e("MapRepository", "Error caching route", e)
+                            }
+                            
                             ApiResult.Success(ruta)
                         }
                     }
                 }
             } catch (e: UnknownHostException) {
                 Log.e("MapRepository", "No internet connection", e)
-                ApiResult.Error(ApiError.NoInternet)
+                throw AppError.NoInternet
             } catch (e: SocketTimeoutException) {
                 Log.e("MapRepository", "Request timeout", e)
-                ApiResult.Error(ApiError.Timeout)
+                throw AppError.Timeout()
             } catch (e: RateLimitException) {
                 Log.e("MapRepository", "Rate limit exceeded", e)
                 throw e // Re-throw to trigger retry
+            } catch (e: AppError) {
+                throw e
             } catch (e: Exception) {
                 Log.e("MapRepository", "Error calculating route", e)
-                ApiResult.Error(ApiError.Unknown(e))
+                throw AppError.Unknown(e.message ?: "Unknown error", e)
             }
         }
     }

@@ -6,9 +6,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.example.regresoacasa.BuildConfig
 import com.example.regresoacasa.data.local.AppDatabase
+import com.example.regresoacasa.data.local.CachedRouteDao
 import com.example.regresoacasa.data.local.LugarFavoritoDao
+import com.example.regresoacasa.data.local.MapStateManager
+import com.example.regresoacasa.data.local.MIGRATION_5_6
 import com.example.regresoacasa.data.local.SearchHistoryDao
 import com.example.regresoacasa.data.location.LocationTrackingService
+import com.example.regresoacasa.data.location.RobustLocationFilter
+import com.example.regresoacasa.data.network.NetworkMonitor
 import com.example.regresoacasa.data.remote.NominatimApiService
 import com.example.regresoacasa.data.remote.OrsApiService
 import com.example.regresoacasa.data.remote.RetrofitClient
@@ -47,21 +52,28 @@ class AppModule private constructor(context: Context) {
         }
     }
 
-    // Database
-    val database: AppDatabase = Room.databaseBuilder(
-        appContext,
-        AppDatabase::class.java,
-        "regreso_a_casa_db"
-    )
-    .addMigrations(MIGRATION_2_3)
-    .build()
+    // Use app database from Application class
+    val database: AppDatabase = (appContext as com.example.regresoacasa.RegresoACasaApp).database
 
     val lugarFavoritoDao: LugarFavoritoDao = database.lugarFavoritoDao()
+    val cachedRouteDao: CachedRouteDao = database.cachedRouteDao()
     val searchHistoryDao: SearchHistoryDao = database.searchHistoryDao()
 
     // Location Tracking
     val locationTrackingService: LocationTrackingService by lazy {
         LocationTrackingService(appContext)
+    }
+    
+    val robustLocationFilter: RobustLocationFilter by lazy {
+        RobustLocationFilter()
+    }
+    
+    val networkMonitor: NetworkMonitor by lazy {
+        NetworkMonitor(appContext)
+    }
+    
+    val mapStateManager: MapStateManager by lazy {
+        MapStateManager(appContext)
     }
 
     // API Services
@@ -73,6 +85,7 @@ class AppModule private constructor(context: Context) {
         MapRepositoryImpl(
             context = appContext,
             lugarFavoritoDao = lugarFavoritoDao,
+            cachedRouteDao = cachedRouteDao,
             nominatimApi = nominatimApi,
             orsApi = orsApi,
             apiKey = BuildConfig.ORS_API_KEY
