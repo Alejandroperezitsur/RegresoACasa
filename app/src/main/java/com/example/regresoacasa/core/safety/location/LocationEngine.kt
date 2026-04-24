@@ -35,12 +35,15 @@ class LocationEngine(private val context: Context) {
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
     
+    // V3: SpoofingDetector para análisis avanzado de GPS
+    private val spoofingDetector = SpoofingDetector()
+    
     private var locationCallback: LocationCallback? = null
     private var isTracking = false
     
     // Estado interno del motor
-    private val _engineState = MutableStateFlow(EngineState.Idle)
-    val engineState: StateFlow<EngineState> = _engineState.asStateFlow()
+    private val _engineState = MutableStateFlow<EngineState>(EngineState.Idle as EngineState)
+    val engineState: StateFlow<EngineState> = _engineState
     
     // Última ubicación conocida confiable
     private var lastReliableLocation: Location? = null
@@ -60,6 +63,13 @@ class LocationEngine(private val context: Context) {
         object Tracking : EngineState()
         data class Degraded(val reason: String) : EngineState()
         data class Error(val error: String) : EngineState()
+        
+        companion object {
+            fun idle() = Idle
+            fun tracking() = Tracking
+            fun degraded(reason: String) = Degraded(reason)
+            fun error(error: String) = Error(error)
+        }
     }
     
     /**
@@ -173,9 +183,15 @@ class LocationEngine(private val context: Context) {
             locationHistory.removeAt(0)
         }
         
-        // Detectar spoofing
-        if (isSpoofedLocation(location)) {
-            _engineState.value = EngineState.Degraded("Possible GPS spoofing detected")
+        // V3: Usar SpoofingDetector para análisis avanzado
+        val spoofingScore = spoofingDetector.analyzeLocation(
+            location = location,
+            locationHistory = locationHistory,
+            lastReliableLocation = lastReliableLocation
+        )
+        
+        if (spoofingScore.isSpoofed) {
+            _engineState.value = EngineState.Degraded("GPS spoofing detected (score: ${spoofingScore.totalScore})")
             degradedCount++
             
             if (degradedCount >= SafetyConstants.SPOOFING_DETECTION_THRESHOLD) {
@@ -198,7 +214,6 @@ class LocationEngine(private val context: Context) {
         // Evaluar precisión
         val accuracy = location.accuracy
         val isReliable = when {
-            accuracy == null -> false
             accuracy < SafetyConstants.GPS_PRECISION_NAVIGABLE -> true
             accuracy < SafetyConstants.GPS_PRECISION_TRACKING -> true
             accuracy < SafetyConstants.GPS_PRECISION_DEGRADED -> {

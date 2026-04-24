@@ -62,8 +62,11 @@ import androidx.compose.material.icons.filled.Warning
 import com.example.regresoacasa.domain.model.Lugar
 import com.example.regresoacasa.domain.model.LugarFavorito
 import com.example.regresoacasa.ui.components.MapaView
+import com.example.regresoacasa.ui.components.ReliabilityIndicator
+import com.example.regresoacasa.ui.components.SafetyModeBanner
 import com.example.regresoacasa.ui.components.SpeedDial
 import com.example.regresoacasa.ui.components.SpeedDialItem
+import com.example.regresoacasa.core.safety.state.SafetyMode
 import com.example.regresoacasa.ui.state.UiState
 import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
@@ -76,7 +79,9 @@ fun MainScreen(
     onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
     hasLocationPermission: Boolean,
-    hasSmsPermission: Boolean
+    hasSmsPermission: Boolean,
+    safetyMode: SafetyMode = SafetyMode.FULL,
+    safetyScore: Int = 100
 ) {
     val uiState by viewModel.uiState.collectAsState()
     var showSettingsMenu by remember { mutableStateOf(false) }
@@ -198,6 +203,18 @@ fun MainScreen(
                 casa = uiState.casa,
                 onSettingsClick = { showSettingsMenu = true },
                 modifier = Modifier.align(Alignment.TopCenter)
+            )
+            
+            // V3: SafetyModeBanner - muestra modo real del sistema
+            SafetyModeBanner(
+                mode = safetyMode,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 130.dp)
+            )
+            
+            // V3: ReliabilityIndicator - muestra score de seguridad
+            ReliabilityIndicator(
+                reliabilityScore = safetyScore,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 170.dp)
             )
         } else {
             // Header de selección

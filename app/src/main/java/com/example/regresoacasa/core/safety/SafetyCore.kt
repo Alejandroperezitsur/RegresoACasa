@@ -8,6 +8,7 @@ import com.example.regresoacasa.core.safety.heartbeat.HeartbeatManager
 import com.example.regresoacasa.core.safety.location.LocationEngine
 import com.example.regresoacasa.core.safety.location.LocationUpdate
 import com.example.regresoacasa.core.safety.location.SpoofingDetector
+import com.example.regresoacasa.core.safety.navigation.FallbackNavigator
 import com.example.regresoacasa.core.safety.persistence.SafetyPersistence
 import com.example.regresoacasa.core.safety.power.EnergyManager
 import com.example.regresoacasa.core.safety.security.AntiKillDetector
@@ -57,6 +58,7 @@ class SafetyCore(
     private val energyManager = EnergyManager(context, scope)
     private val safetyScoreCalculator = SafetyScoreCalculator()
     private val rateLimiter = RateLimiter()
+    private val fallbackNavigator = FallbackNavigator()
     
     private val scope = CoroutineScope(Dispatchers.Default + Job())
     
@@ -296,6 +298,27 @@ class SafetyCore(
     }
     
     /**
+     * V3: Obtiene instrucciones de fallback cuando GPS falla
+     */
+    fun getFallbackInstructions(): FallbackNavigator.FallbackInstructions {
+        return fallbackNavigator.getFallbackInstructions()
+    }
+    
+    /**
+     * V3: Cachea la ruta actual para fallback
+     */
+    fun cacheRouteForFallback(route: List<com.example.regresoacasa.domain.model.UbicacionUsuario>) {
+        fallbackNavigator.cacheRoute(route)
+    }
+    
+    /**
+     * V3: Establece el destino para fallback
+     */
+    fun setFallbackDestination(dest: com.example.regresoacasa.domain.model.UbicacionUsuario) {
+        fallbackNavigator.setDestination(dest)
+    }
+    
+    /**
      * V3: Verifica integridad del dispositivo
      */
     private fun checkIntegrity() {
@@ -335,7 +358,10 @@ class SafetyCore(
         locationJob?.cancel()
         
         locationJob = scope.launch {
-            locationEngine.start().collect { update ->
+            // V3: Obtener intervalo adaptativo según modo de energía
+            val interval = energyManager.getGpsInterval()
+            
+            locationEngine.start(intervalMillis = interval).collect { update ->
                 when (update) {
                     is LocationUpdate.Reliable -> {
                         lastGpsUpdate = System.currentTimeMillis()
@@ -360,10 +386,23 @@ class SafetyCore(
                             isReliable = false
                         )
                         
+                        // V3: Actualizar FallbackNavigator con última ubicación válida
+                        val lastValid = com.example.regresoacasa.domain.model.UbicacionUsuario(
+                            latitud = update.lastKnownLocation.latitude,
+                            longitud = update.lastKnownLocation.longitude,
+                            timestamp = update.lastKnownLocation.time
+                        )
+                        fallbackNavigator.updateLastValidLocation(lastValid)
+                        
                         evaluateMode()
                     }
                     is LocationUpdate.Error -> {
                         Log.e("SafetyCore", "Location error: ${update.error}")
+                        
+                        // V3: Obtener instrucciones de fallback
+                        val fallbackInstructions = fallbackNavigator.getFallbackInstructions()
+                        Log.d("SafetyCore", "Fallback instructions: ${fallbackInstructions.message}")
+                        
                         evaluateMode()
                     }
                 }

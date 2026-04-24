@@ -57,6 +57,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.regresoacasa.ui.components.MapaView
+import com.example.regresoacasa.ui.components.SafetyModeBanner
+import com.example.regresoacasa.core.safety.state.SafetyMode
 import com.example.regresoacasa.ui.state.ConnectionState
 import com.example.regresoacasa.ui.state.NavigationUiState
 import com.example.regresoacasa.ui.state.SystemFeedbackState
@@ -71,7 +73,8 @@ import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 @Composable
 fun NavigationScreen(
     viewModel: NavigationViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    safetyMode: SafetyMode = SafetyMode.FULL
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val navigationState = uiState.navigationState
@@ -116,6 +119,12 @@ fun NavigationScreen(
                 ruta = navigationState.route?.puntos,
                 isFollowingUser = navigationState.isFollowingUser,
                 onFollowUserToggle = { viewModel.toggleFollowUser() }
+            )
+
+            // V3: SafetyModeBanner - muestra modo real del sistema
+            SafetyModeBanner(
+                mode = safetyMode,
+                modifier = Modifier.align(Alignment.TopCenter)
             )
 
             // FASE 7: UI Mínima - SOLO lo esencial

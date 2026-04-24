@@ -1,5 +1,6 @@
 package com.example.regresoacasa.data.remote
 
+import com.example.regresoacasa.core.safety.network.NetworkHardening
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -22,12 +23,10 @@ object RetrofitClient {
         }
     }
 
-    // Cliente ORS con logging en debug
+    // Cliente ORS con logging en debug y V3 certificate pinning
     private val orsClient by lazy {
-        val builder = OkHttpClient.Builder()
-            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        // V3: Usar NetworkHardening para crear cliente seguro
+        val builder = NetworkHardening.createSecureClient()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
                     // Dejamos que el service defina el Accept header si existe
@@ -53,9 +52,10 @@ object RetrofitClient {
         builder.build()
     }
 
-    // Cliente Nominatim con User-Agent requerido
+    // Cliente Nominatim con User-Agent requerido y V3 certificate pinning
     private val nominatimClient by lazy {
-        val builder = OkHttpClient.Builder()
+        // V3: Usar NetworkHardening para crear cliente seguro
+        val builder = NetworkHardening.createSecureClient()
             .addInterceptor { chain ->
                 val request = chain.request().newBuilder()
                     .header("User-Agent", "RegresoACasaApp_v1.0_${System.currentTimeMillis()}_Dev (contact: alex.dev.mex@gmail.com)")
@@ -65,9 +65,6 @@ object RetrofitClient {
                     .build()
                 chain.proceed(request)
             }
-            .connectTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .readTimeout(READ_TIMEOUT_SECONDS, TimeUnit.SECONDS)
-            .writeTimeout(WRITE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         
         // Solo agregar logging en debug builds
         try {

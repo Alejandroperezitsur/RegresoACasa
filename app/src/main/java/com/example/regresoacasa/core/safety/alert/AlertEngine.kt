@@ -36,6 +36,9 @@ class AlertEngine(
     
     private val smsManager: SmsManager = context.getSystemService(SmsManager::class.java)
     
+    // V3: DeliveryTracker para tracking de entrega real
+    private val deliveryTracker = DeliveryTracker(context, scope, persistence)
+    
     private val _alertState = MutableStateFlow<AlertState>(AlertState.Idle)
     val alertState: StateFlow<AlertState> = _alertState.asStateFlow()
     
@@ -45,6 +48,23 @@ class AlertEngine(
     // Callbacks para notificaciones
     var onAlertSent: ((String) -> Unit)? = null
     var onAlertFailed: ((String, Exception) -> Unit)? = null
+    
+    // V3: Callbacks de delivery
+    var onDeliveryConfirmed: ((String) -> Unit)? = null
+    var onDeliveryFailed: ((String, String) -> Unit)? = null
+    
+    init {
+        // V3: Configurar callbacks de DeliveryTracker
+        deliveryTracker.onDeliveryConfirmed = { alertId ->
+            onDeliveryConfirmed?.invoke(alertId)
+            Log.d("AlertEngine", "Delivery confirmed: $alertId")
+        }
+        
+        deliveryTracker.onDeliveryFailed = { alertId, reason ->
+            onDeliveryFailed?.invoke(alertId, reason)
+            Log.e("AlertEngine", "Delivery failed: $alertId, reason: $reason")
+        }
+    }
     
     /**
      * Estado del motor de alertas
@@ -156,6 +176,7 @@ class AlertEngine(
     /**
      * Intenta enviar alerta vía backend
      */
+    @Suppress("UNUSED_PARAMETER")
     private suspend fun trySendBackend(
         alertId: String,
         message: String,
@@ -163,6 +184,7 @@ class AlertEngine(
     ): AlertResult {
         // TODO: Implementar envío al backend proxy
         // Por ahora, simulamos fallo para forzar SMS
+        Log.d("AlertEngine", "Backend send attempted for $alertId")
         return AlertResult.Failed(alertId, Exception("Backend not implemented"))
     }
     
@@ -194,55 +216,17 @@ class AlertEngine(
     }
     
     /**
-     * Envía un SMS individual
+     * Envía un SMS individual usando DeliveryTracker V3
      */
     private fun sendSingleSMS(alertId: String, contactPhone: String, message: String) {
-        val sentIntent = Intent(ACTION_SMS_SENT).apply {
-            putExtra(EXTRA_ALERT_ID, alertId)
-            setPackage(context.packageName)
+        // V3: Usar DeliveryTracker para tracking de entrega real
+        val result = deliveryTracker.sendSMSWithTracking(alertId, contactPhone, message)
+        
+        if (!result.sent) {
+            throw Exception(result.failureReason ?: "SMS send failed")
         }
         
-        val deliveredIntent = Intent(ACTION_SMS_DELIVERED).apply {
-            putExtra(EXTRA_ALERT_ID, alertId)
-            setPackage(context.packageName)
-        }
-        
-        val sentPendingIntent = PendingIntent.getBroadcast(
-            context,
-            alertId.hashCode(),
-            sentIntent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-        )
-        
-        val deliveredPendingIntent = PendingIntent.getBroadcast(
-            context,
-            alertId.hashCode() + 1,
-            deliveredIntent,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            } else {
-                PendingIntent.FLAG_UPDATE_CURRENT
-            }
-        )
-        
-        try {
-            smsManager.sendTextMessage(
-                contactPhone,
-                null,
-                message,
-                sentPendingIntent,
-                deliveredPendingIntent
-            )
-            Log.d("AlertEngine", "SMS sent to $contactPhone")
-        } catch (e: Exception) {
-            sentPendingIntent.cancel()
-            deliveredPendingIntent.cancel()
-            throw e
-        }
+        Log.d("AlertEngine", "SMS sent with tracking to $contactPhone")
     }
     
     /**
@@ -310,7 +294,8 @@ class AlertEngine(
             if (alert.retries < SafetyConstants.ALERT_RETRY_LIMIT) {
                 _alertState.value = AlertState.Retrying(alert.id, alert.retries + 1)
                 
-                val result = sendSMSWithRetry(alert.id, alert.contactPhone, alert.message)
+                val phone = alert.contactPhone ?: return@forEach
+                val result = sendSMSWithRetry(alert.id, phone, alert.message)
                 
                 when (result) {
                     is AlertResult.Success -> {
