@@ -1,8 +1,10 @@
 package com.example.regresoacasa.data.safety
 
 import android.content.Context
-import android.telephony.SmsManager
 import android.util.Log
+import com.example.regresoacasa.core.safety.alert.AlertPersistence
+import com.example.regresoacasa.core.safety.alert.PendingAlert
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import com.example.regresoacasa.utils.SafeHaptics
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +21,9 @@ import kotlinx.coroutines.launch
  */
 class GuardianManager(
     private val context: Context,
-    private val haptics: SafeHaptics
+    private val haptics: SafeHaptics,
+    private val smsWrapper: SmsManagerWrapper,
+    private val persistence: AlertPersistence
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     
@@ -66,13 +70,14 @@ class GuardianManager(
             "¡ALERTA! Regreso a Casa: Necesito ayuda urgente."
         }
 
-        try {
-            val smsManager = context.getSystemService(SmsManager::class.java)
-            smsManager.sendTextMessage(phone, null, message, null, null)
-            haptics.guardianAlert()
-            Log.d("GuardianManager", "Alerta de emergencia enviada a $phone")
-        } catch (e: Exception) {
-            Log.e("GuardianManager", "Error enviando SMS", e)
+        scope.launch {
+            try {
+                val result = smsWrapper.sendWithTracking(phone, message)
+                haptics.guardianAlert()
+                Log.d("GuardianManager", "Alerta de emergencia enviada a $phone - Sent: ${result.sent}, Delivered: ${result.delivered}")
+            } catch (e: Exception) {
+                Log.e("GuardianManager", "Error enviando SMS", e)
+            }
         }
     }
 }

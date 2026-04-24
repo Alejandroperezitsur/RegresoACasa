@@ -9,8 +9,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.example.regresoacasa.di.AppModule
 import com.example.regresoacasa.domain.model.*
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
 import com.example.regresoacasa.data.location.LocationFilter
-import com.example.regresoacasa.data.location.LocationForegroundService
 import com.example.regresoacasa.domain.utils.SnapToRoute
 import com.example.regresoacasa.ui.state.*
 import com.example.regresoacasa.domain.utils.SmoothLocationTransition
@@ -134,7 +134,12 @@ class NavigationViewModel(
         safeReturnPreferences = SafeReturnPreferences(context)
         preferencesManager = PreferencesManager(context)
         safeHaptics = SafeHaptics(context)
-        guardianManager = com.example.regresoacasa.data.safety.GuardianManager(context, safeHaptics)
+        guardianManager = com.example.regresoacasa.data.safety.GuardianManager(
+            context,
+            safeHaptics,
+            appModule.smsManagerWrapper,
+            appModule.safetyPersistence
+        )
         ttsManager = com.example.regresoacasa.utils.TtsManager(context)
         
         // Initialize new safety components
@@ -492,12 +497,7 @@ class NavigationViewModel(
             }
         }
         
-        // CRÍTICO: Iniciar ForegroundService para Android 10+ background tracking
-        try {
-            LocationForegroundService.start(appModule.appContext, intervalMillis)
-        } catch (e: Exception) {
-            Log.e("NavigationViewModel", "Error starting foreground service", e)
-        }
+        // NOTA: SafetyForegroundService maneja el tracking, no se necesita LocationForegroundService
     }
     
     /**
@@ -1154,9 +1154,8 @@ class NavigationViewModel(
         ttsManager?.release()
         ttsManager = null
         
-        // CRÍTICO: Detener ForegroundService para Android 10+
+        // CRÍTICO: Detener SafetyForegroundService (maneja todo el tracking)
         try {
-            LocationForegroundService.stop(appModule.appContext)
             SafetyForegroundService.stopService(appModule.appContext)
         } catch (e: Exception) {
             Log.e("NavigationViewModel", "Error stopping foreground service", e)
@@ -1574,14 +1573,51 @@ class NavigationViewModel(
             "🚨 EMERGENCIA - Regreso Seguro\nNecesito ayuda urgente."
         }
 
+        // Actualizar estado a Sending
+        _uiState.update { it.copy(emergencyAlertStatus = EmergencyAlertStatus.Sending) }
+
         viewModelScope.launch {
+            var sentCount = 0
+            var failedCount = 0
+            var firstPhoneNumber: String? = null
+            
             emergencyContacts.forEach { contact ->
+                if (firstPhoneNumber == null) firstPhoneNumber = contact.phoneNumber
                 try {
-                    val smsManager = appModule.appContext.getSystemService(android.telephony.SmsManager::class.java)
-                    smsManager.sendTextMessage(contact.phoneNumber, null, message, null, null)
-                    Log.d("NavigationViewModel", "Emergency SMS sent to ${contact.name}")
+                    val result = appModule.smsManagerWrapper.sendWithTracking(contact.phoneNumber, message)
+                    if (result.sent) {
+                        sentCount++
+                        Log.d("NavigationViewModel", "Emergency SMS sent to ${contact.name} - Delivered: ${result.delivered}")
+                    } else {
+                        failedCount++
+                        Log.e("NavigationViewModel", "Emergency SMS failed to ${contact.name}: ${result.failureReason}")
+                    }
                 } catch (e: Exception) {
-                    Log.e("NavigationViewModel", "Error sending emergency SMS", e)
+                    failedCount++
+                    Log.e("NavigationViewModel", "Error sending emergency SMS to ${contact.name}", e)
+                }
+            }
+            
+            Log.d("NavigationViewModel", "Emergency SMS summary: $sentCount sent, $failedCount failed")
+            
+            // Actualizar estado basado en resultado
+            if (sentCount > 0) {
+                _uiState.update { 
+                    it.copy(
+                        emergencyAlertStatus = EmergencyAlertStatus.Sent(
+                            timestamp = System.currentTimeMillis(),
+                            phoneNumber = firstPhoneNumber ?: "contactos"
+                        )
+                    )
+                }
+            } else {
+                _uiState.update { 
+                    it.copy(
+                        emergencyAlertStatus = EmergencyAlertStatus.Failed(
+                            error = "No se pudo enviar a ningún contacto",
+                            timestamp = System.currentTimeMillis()
+                        )
+                    )
                 }
             }
         }

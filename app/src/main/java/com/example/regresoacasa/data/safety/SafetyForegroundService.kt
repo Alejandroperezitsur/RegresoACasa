@@ -12,6 +12,9 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.regresoacasa.MainActivity
 import com.example.regresoacasa.R
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
+import com.example.regresoacasa.core.safety.alert.AlertPersistence
+import com.example.regresoacasa.core.safety.persistence.SafetyPersistence
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +40,8 @@ class SafetyForegroundService : Service() {
     private lateinit var tripMonitorEngine: TripMonitorEngine
     private lateinit var safetyAlertEngine: SafetyAlertEngine
     private lateinit var liveTrackingSession: LiveTrackingSession
+    private lateinit var smsManagerWrapper: SmsManagerWrapper
+    private lateinit var safetyPersistence: SafetyPersistence
     
     private var currentTripId: String? = null
     private var expectedArrivalTime: Long = 0
@@ -98,9 +103,13 @@ class SafetyForegroundService : Service() {
         super.onCreate()
         createNotificationChannel()
         
+        // Inicializar dependencias de SMS
+        safetyPersistence = SafetyPersistence(this)
+        smsManagerWrapper = SmsManagerWrapper(this, serviceScope, safetyPersistence)
+        
         tripMonitorEngine = TripMonitorEngine(serviceScope)
-        safetyAlertEngine = SafetyAlertEngine(this, serviceScope)
-        liveTrackingSession = LiveTrackingSession(this, serviceScope)
+        safetyAlertEngine = SafetyAlertEngine(this, serviceScope, smsManagerWrapper)
+        liveTrackingSession = LiveTrackingSession(this, serviceScope, smsManagerWrapper)
         
         Log.d("SafetyForegroundService", "Service created")
     }

@@ -97,8 +97,21 @@ data class MainUiState(
     val isLowBatteryMode: Boolean = false,
     val safeReturnSession: com.example.regresoacasa.data.safety.SafeReturnSession? = null,
     val isSafeReturnActive: Boolean = false,
-    val mapStyle: String = "Normal"
+    val mapStyle: String = "Normal",
+    
+    // Estado de alerta de emergencia para feedback visual
+    val emergencyAlertStatus: EmergencyAlertStatus = EmergencyAlertStatus.Idle
 )
+
+/**
+ * Estado de alerta de emergencia para feedback visual al usuario
+ */
+sealed class EmergencyAlertStatus {
+    object Idle : EmergencyAlertStatus()
+    object Sending : EmergencyAlertStatus()
+    data class Sent(val timestamp: Long, val phoneNumber: String) : EmergencyAlertStatus()
+    data class Failed(val error: String, val timestamp: Long) : EmergencyAlertStatus()
+}
 
 enum class Pantalla {
     MAP,

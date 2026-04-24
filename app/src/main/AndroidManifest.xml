@@ -62,15 +62,7 @@
             </intent-filter>
         </activity>
         
-        <!-- Foreground Service para tracking de ubicación en background -->
-        <service
-            android:name="com.example.regresoacasa.data.location.LocationForegroundService"
-            android:enabled="true"
-            android:exported="false"
-            android:foregroundServiceType="location"
-            android:description="@string/navigation_service_description" />
-        
-        <!-- Foreground Service para monitoreo de seguridad -->
+        <!-- Foreground Service para monitoreo de seguridad (único servicio) -->
         <service
             android:name="com.example.regresoacasa.data.safety.SafetyForegroundService"
             android:enabled="true"

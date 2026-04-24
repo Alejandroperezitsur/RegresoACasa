@@ -30,7 +30,10 @@ class SpoofingDetector {
         val mockProvider: Boolean,
         val signalVariance: Boolean,
         val temporalInconsistency: Boolean,
-        val score: Int // 0-5, más alto = más probable spoofing
+        val altitudeAnomaly: Boolean,
+        val bearingInconsistency: Boolean,
+        val providerSwitching: Boolean,
+        val score: Int // 0-8, más alto = más probable spoofing
     ) {
         /**
          * Verifica si es spoofing (score >= 2)
@@ -55,25 +58,37 @@ class SpoofingDetector {
         
         var score = 0
         
-        // 1. Verificar mock provider
+        // 1. Verificar mock provider (+3 puntos)
         val mockProvider = isMockProvider(location)
-        if (mockProvider) score += 2
+        if (mockProvider) score += 3
         
-        // 2. Verificar velocidad anómala
+        // 2. Verificar velocidad anómala (+2 puntos)
         val speedAnomaly = hasSpeedAnomaly(location)
-        if (speedAnomaly) score += 1
+        if (speedAnomaly) score += 2
         
-        // 3. Verificar saltos irreales
+        // 3. Verificar saltos irreales (+2 puntos)
         val jumpAnomaly = hasJumpAnomaly(location)
-        if (jumpAnomaly) score += 1
+        if (jumpAnomaly) score += 2
         
-        // 4. Verificar variación de señal
+        // 4. Verificar variación de señal (+1 punto)
         val signalVariance = hasSignalVariance(location)
         if (signalVariance) score += 1
         
-        // 5. Verificar inconsistencia temporal
+        // 5. Verificar inconsistencia temporal (+1 punto)
         val temporalInconsistency = hasTemporalInconsistency(location)
         if (temporalInconsistency) score += 1
+        
+        // 6. Verificar altitud anómala (+2 puntos)
+        val altitudeAnomaly = hasAltitudeAnomaly(location)
+        if (altitudeAnomaly) score += 2
+        
+        // 7. Verificar bearing inconsistente (+1 punto)
+        val bearingInconsistency = hasBearingInconsistency(location)
+        if (bearingInconsistency) score += 1
+        
+        // 8. Verificar provider switching (+1 punto)
+        val providerSwitching = hasProviderSwitching(location)
+        if (providerSwitching) score += 1
         
         return SpoofingAnalysis(
             speedAnomaly = speedAnomaly,
@@ -81,6 +96,9 @@ class SpoofingDetector {
             mockProvider = mockProvider,
             signalVariance = signalVariance,
             temporalInconsistency = temporalInconsistency,
+            altitudeAnomaly = altitudeAnomaly,
+            bearingInconsistency = bearingInconsistency,
+            providerSwitching = providerSwitching,
             score = score
         )
     }
@@ -203,6 +221,85 @@ class SpoofingDetector {
             // Si los intervalos varían dramáticamente, es sospechoso
             val ratio = if (interval1 > 0) interval2.toDouble() / interval1 else 0.0
             if (ratio > 10.0 || ratio < 0.1) return true
+        }
+        
+        return false
+    }
+    
+    /**
+     * Verifica altitud anómala
+     * 
+     * Saltos de altitud > 100m en < 1 segundo son irreales
+     */
+    private fun hasAltitudeAnomaly(location: Location): Boolean {
+        if (locationHistory.size < 2) return false
+        
+        val prev = locationHistory[locationHistory.size - 2]
+        
+        // Verificar si ambos tienen altitud válida
+        if (!location.hasAltitude() || !prev.hasAltitude()) return false
+        
+        val altitudeDiff = abs(location.altitude - prev.altitude)
+        val timeDiff = (location.time - prev.time) / 1000.0 // segundos
+        
+        if (timeDiff <= 0) return false
+        
+        // Salto de altitud > 100m en < 1 segundo es irreales
+        if (altitudeDiff > 100.0 && timeDiff < 1.0) return true
+        
+        // Salto de altitud > 500m en < 5 segundos es irreales
+        if (altitudeDiff > 500.0 && timeDiff < 5.0) return true
+        
+        return false
+    }
+    
+    /**
+     * Verifica bearing inconsistente
+     * 
+     * Cambios de bearing > 180° en < 1 segundo son irreales
+     */
+    private fun hasBearingInconsistency(location: Location): Boolean {
+        if (locationHistory.size < 2) return false
+        
+        val prev = locationHistory[locationHistory.size - 2]
+        
+        // Verificar si ambos tienen bearing válido
+        if (!location.hasBearing() || !prev.hasBearing()) return false
+        
+        val bearingDiff = abs(location.bearing - prev.bearing)
+        val timeDiff = (location.time - prev.time) / 1000.0 // segundos
+        
+        if (timeDiff <= 0) return false
+        
+        // Cambio de bearing > 180° en < 1 segundo es irreales
+        if (bearingDiff > 180.0 && timeDiff < 1.0) return true
+        
+        return false
+    }
+    
+    /**
+     * Verifica provider switching
+     * 
+     * Cambios frecuentes entre GPS y Network providers son sospechosos
+     */
+    private fun hasProviderSwitching(location: Location): Boolean {
+        if (locationHistory.size < 3) return false
+        
+        val last3 = locationHistory.takeLast(3)
+        val providers = last3.map { it.provider }.toSet()
+        
+        // Si hay 3+ providers diferentes en las últimas 3 ubicaciones, es sospechoso
+        if (providers.size >= 3) return true
+        
+        // Si hay cambios de provider en cada actualización, es sospechoso
+        val last2Providers = last3.takeLast(2).map { it.provider }
+        if (last2Providers[0] != last2Providers[1]) {
+            // Verificar si el cambio es frecuente
+            val changes = (0 until locationHistory.size - 1).count { i ->
+                locationHistory[i].provider != locationHistory[i + 1].provider
+            }
+            // Si hay más de 2 cambios en el historial, es sospechoso
+            if (changes > 2) return true
         }
         
         return false

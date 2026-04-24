@@ -11,6 +11,9 @@ import com.example.regresoacasa.data.local.LugarFavoritoDao
 import com.example.regresoacasa.data.local.MapStateManager
 import com.example.regresoacasa.data.local.MIGRATION_5_6
 import com.example.regresoacasa.data.local.SearchHistoryDao
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
+import com.example.regresoacasa.core.safety.alert.AlertPersistence
+import com.example.regresoacasa.core.safety.persistence.SafetyPersistence
 import com.example.regresoacasa.data.location.LocationTrackingService
 import com.example.regresoacasa.data.location.RobustLocationFilter
 import com.example.regresoacasa.data.network.NetworkMonitor
@@ -119,6 +122,19 @@ class AppModule private constructor(context: Context) {
 
     val obtenerDireccionUseCase: ObtenerDireccionUseCase by lazy {
         ObtenerDireccionUseCase(mapRepository)
+    }
+
+    // SMS Wrapper con delivery confirmation
+    val safetyPersistence: SafetyPersistence by lazy {
+        SafetyPersistence(appContext)
+    }
+
+    val smsManagerWrapper: SmsManagerWrapper by lazy {
+        SmsManagerWrapper(
+            context = appContext,
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.Job()),
+            persistence = safetyPersistence
+        )
     }
 
     companion object {

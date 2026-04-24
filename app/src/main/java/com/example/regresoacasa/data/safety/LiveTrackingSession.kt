@@ -1,8 +1,8 @@
 package com.example.regresoacasa.data.safety
 
 import android.content.Context
-import android.content.Intent
 import android.util.Log
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +22,8 @@ import java.util.UUID
  */
 class LiveTrackingSession(
     private val context: Context,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val smsWrapper: SmsManagerWrapper
 ) {
     private val _sessionState = MutableStateFlow<SessionState?>(null)
     val sessionState = _sessionState.asStateFlow()
@@ -310,20 +311,16 @@ class LiveTrackingSession(
     }
 
     /**
-     * Envía SMS a un contacto específico
+     * Envía SMS a un contacto específico con delivery confirmation
      */
     private fun sendSmsToContact(contact: EmergencyContact, message: String) {
-        try {
-            val smsManager = context.getSystemService(android.telephony.SmsManager::class.java)
-            smsManager.sendTextMessage(
-                contact.phoneNumber,
-                null,
-                message,
-                null,
-                null
-            )
-        } catch (e: Exception) {
-            Log.e("LiveTrackingSession", "Error enviando SMS a ${contact.name}", e)
+        scope.launch(Dispatchers.IO) {
+            try {
+                val result = smsWrapper.sendWithTracking(contact.phoneNumber, message)
+                Log.d("LiveTrackingSession", "SMS enviado a ${contact.name} - Sent: ${result.sent}, Delivered: ${result.delivered}")
+            } catch (e: Exception) {
+                Log.e("LiveTrackingSession", "Error enviando SMS a ${contact.name}", e)
+            }
         }
     }
 

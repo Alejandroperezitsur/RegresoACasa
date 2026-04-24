@@ -174,18 +174,65 @@ class AlertEngine(
     }
     
     /**
-     * Intenta enviar alerta vía backend
+     * Intenta enviar alerta vía backend proxy
      */
-    @Suppress("UNUSED_PARAMETER")
     private suspend fun trySendBackend(
         alertId: String,
         message: String,
         location: LocationData?
     ): AlertResult {
-        // TODO: Implementar envío al backend proxy
-        // Por ahora, simulamos fallo para forzar SMS
-        Log.d("AlertEngine", "Backend send attempted for $alertId")
-        return AlertResult.Failed(alertId, Exception("Backend not implemented"))
+        val backendUrl = com.example.regresoacasa.BuildConfig.BACKEND_PROXY_URL
+        if (backendUrl.isBlank()) {
+            Log.w("AlertEngine", "Backend URL not configured, skipping backend send")
+            return AlertResult.Failed(alertId, Exception("Backend not configured"))
+        }
+        
+        return try {
+            val client = okhttp3.OkHttpClient.Builder()
+                .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+                .build()
+            
+            val json = okhttp3.MediaType.parse("application/json; charset=utf-8")
+            val requestBody = okhttp3.RequestBody.create(json, buildBackendJson(alertId, message, location))
+            
+            val request = okhttp3.Request.Builder()
+                .url("$backendUrl/alert")
+                .post(requestBody)
+                .build()
+            
+            val response = client.newCall(request).execute()
+            
+            if (response.isSuccessful) {
+                Log.d("AlertEngine", "Backend alert sent successfully: $alertId")
+                AlertResult.Success(alertId)
+            } else {
+                Log.e("AlertEngine", "Backend alert failed: ${response.code()} for $alertId")
+                AlertResult.Failed(alertId, Exception("Backend error: ${response.code()}"))
+            }
+        } catch (e: Exception) {
+            Log.e("AlertEngine", "Backend send error for $alertId", e)
+            AlertResult.Failed(alertId, e)
+        }
+    }
+    
+    /**
+     * Construye JSON para el backend
+     */
+    private fun buildBackendJson(alertId: String, message: String, location: LocationData?): String {
+        val json = com.google.gson.Gson()
+        val data = mapOf(
+            "alertId" to alertId,
+            "message" to message,
+            "location" to if (location != null) mapOf(
+                "lat" to location.latitude,
+                "lng" to location.longitude,
+                "accuracy" to location.accuracy
+            ) else null,
+            "battery" to location?.batteryLevel,
+            "timestamp" to System.currentTimeMillis()
+        )
+        return json.toJson(data)
     }
     
     /**

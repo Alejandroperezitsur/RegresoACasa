@@ -6,9 +6,9 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.telephony.SmsManager
 import android.util.Log
 import com.example.regresoacasa.MainActivity
+import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
 import com.example.regresoacasa.domain.model.UbicacionUsuario
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,18 +25,18 @@ import java.util.Locale
  * SafetyAlertEngine - Sistema de alertas de 3 niveles
  * Nivel 1 (SOFT): Notificación al usuario "¿Todo bien?"
  * Nivel 2 (ACTIVE): Countdown 15s, si no responde → enviar a contactos
- * Nivel 3 (CRITICAL): SMS automático sin confirmación
+ * Nivel 3 (CRITICAL): SMS automático con confirmación de entrega
  */
 class SafetyAlertEngine(
     private val context: Context,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val smsWrapper: SmsManagerWrapper
 ) {
     private val _alertState = MutableStateFlow(AlertState())
     val alertState = _alertState.asStateFlow()
 
     private var countdownJob: Job? = null
     private val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-    private val smsManager = context.getSystemService(SmsManager::class.java)
     private val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
 
     companion object {
@@ -190,7 +190,7 @@ class SafetyAlertEngine(
     }
 
     /**
-     * Envía SMS de emergencia a todos los contactos
+     * Envía SMS de emergencia a todos los contactos con delivery confirmation
      */
     private fun sendEmergencySms(
         location: UbicacionUsuario?,
@@ -203,22 +203,30 @@ class SafetyAlertEngine(
 
         val message = buildEmergencyMessage(location)
 
-        contacts.forEach { contact ->
-            try {
-                smsManager.sendTextMessage(
-                    contact.phoneNumber,
-                    null,
-                    message,
-                    null,
-                    null
-                )
-                Log.d("SafetyAlertEngine", "SMS enviado a ${contact.name}")
-            } catch (e: Exception) {
-                Log.e("SafetyAlertEngine", "Error enviando SMS a ${contact.name}", e)
-            }
-        }
+        scope.launch(Dispatchers.IO) {
+            var sentCount = 0
+            var failedCount = 0
 
-        _alertState.value = _alertState.value.copy(alertMessage = "Alerta enviada a ${contacts.size} contactos")
+            contacts.forEach { contact ->
+                try {
+                    val result = smsWrapper.sendWithTracking(contact.phoneNumber, message)
+                    if (result.sent) {
+                        sentCount++
+                        Log.d("SafetyAlertEngine", "SMS enviado a ${contact.name} - Delivered: ${result.delivered}")
+                    } else {
+                        failedCount++
+                        Log.e("SafetyAlertEngine", "SMS falló a ${contact.name}: ${result.failureReason}")
+                    }
+                } catch (e: Exception) {
+                    failedCount++
+                    Log.e("SafetyAlertEngine", "Error enviando SMS a ${contact.name}", e)
+                }
+            }
+
+            _alertState.value = _alertState.value.copy(
+                alertMessage = "Alerta enviada a $sentCount contactos${if (failedCount > 0) " ($failedCount fallaron)" else ""}"
+            )
+        }
     }
 
     /**

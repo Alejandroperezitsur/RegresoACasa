@@ -1,17 +1,25 @@
 package com.example.regresoacasa.core.safety.security
 
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
 
 /**
  * V3 FASE 13 — HARDENING FINAL (RATE LIMITING)
  * 
- * Sistema de rate limiting para prevenir abuso y ataques.
- * Limita la frecuencia de operaciones críticas.
+ * Sistema de rate limiting con persistencia en DataStore.
+ * Limita la frecuencia de operaciones críticas y persiste en disco.
  */
-class RateLimiter {
+class RateLimiter(private val context: Context) {
     
     private val requestHistory = ConcurrentHashMap<String, MutableList<Long>>()
     private val _isRateLimited = MutableStateFlow(false)
@@ -33,10 +41,47 @@ class RateLimiter {
         val windowMs: Long
     )
     
+    init {
+        // Cargar historial persistido al inicio
+        loadPersistedHistory()
+    }
+    
+    /**
+     * Carga el historial persistido desde DataStore
+     */
+    private suspend fun loadPersistedHistory() {
+        try {
+            val prefs = context.dataStore.data.first()
+            limits.keys.forEach { operation ->
+                val countKey = stringPreferencesKey("rate_count_$operation")
+                val lastRequestKey = longPreferencesKey("rate_last_$operation")
+                
+                val count = prefs[countKey]?.toIntOrNull() ?: 0
+                val lastRequest = prefs[lastRequestKey] ?: 0L
+                
+                if (count > 0 && lastRequest > 0) {
+                    val now = System.currentTimeMillis()
+                    val limit = limits[operation] ?: return@forEach
+                    
+                    // Si el último request está dentro de la ventana, restaurar
+                    if (now - lastRequest < limit.windowMs) {
+                        val history = requestHistory.getOrPut(operation) { mutableListOf() }
+                        // Agregar timestamps simulados basados en el último request
+                        for (i in 0 until count) {
+                            history.add(lastRequest - (i * (limit.windowMs / count)))
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // Si falla la carga, continuar con historial vacío
+        }
+    }
+    
     /**
      * Verifica si una operación está permitida
      */
-    fun isAllowed(operation: String): Boolean {
+    suspend fun isAllowed(operation: String): Boolean {
         val limit = limits[operation] ?: return true
         
         val now = System.currentTimeMillis()
@@ -54,7 +99,25 @@ class RateLimiter {
         // Agregar request actual
         history.add(now)
         _isRateLimited.value = false
+        
+        // Persistir en DataStore
+        persistHistory(operation, history.size, now)
+        
         return true
+    }
+    
+    /**
+     * Persiste el historial en DataStore
+     */
+    private suspend fun persistHistory(operation: String, count: Int, lastRequest: Long) {
+        try {
+            context.dataStore.edit { prefs ->
+                prefs[stringPreferencesKey("rate_count_$operation")] = count.toString()
+                prefs[longPreferencesKey("rate_last_$operation")] = lastRequest
+            }
+        } catch (e: Exception) {
+            // Si falla la persistencia, continuar sin ella
+        }
     }
     
     /**
@@ -75,14 +138,35 @@ class RateLimiter {
     /**
      * Limpia el historial de una operación
      */
-    fun reset(operation: String) {
+    suspend fun reset(operation: String) {
         requestHistory.remove(operation)
+        try {
+            context.dataStore.edit { prefs ->
+                prefs.remove(stringPreferencesKey("rate_count_$operation"))
+                prefs.remove(longPreferencesKey("rate_last_$operation"))
+            }
+        } catch (e: Exception) {
+            // Ignorar error al limpiar persistencia
+        }
     }
     
     /**
      * Limpia todo el historial
      */
-    fun resetAll() {
+    suspend fun resetAll() {
         requestHistory.clear()
+        try {
+            context.dataStore.edit { prefs ->
+                limits.keys.forEach { operation ->
+                    prefs.remove(stringPreferencesKey("rate_count_$operation"))
+                    prefs.remove(longPreferencesKey("rate_last_$operation"))
+                }
+            }
+        } catch (e: Exception) {
+            // Ignorar error al limpiar persistencia
+        }
     }
 }
+
+// Extensión para DataStore
+private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "rate_limiter")

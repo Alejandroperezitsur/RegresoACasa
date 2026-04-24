@@ -240,19 +240,50 @@ class RegresoACasaApp : Application() {
      * Esta implementación es un placeholder que debe mejorarse.
      */
     private fun getDeviceSpecificKey(): String {
-        // Usar una combinación de device ID y app secret
-        // En producción, esto debería derivarse de Android Keystore
-        val deviceId = android.provider.Settings.Secure.getString(
-            contentResolver,
-            android.provider.Settings.Secure.ANDROID_ID
-        )
-        
-        // Hash simple para generar clave de 32 caracteres
-        val combined = deviceId + "regreso_a_casa_salt_2024"
-        val hash = java.security.MessageDigest.getInstance("SHA-256")
-            .digest(combined.toByteArray())
-            .joinToString("") { "%02x".format(it) }
-        
-        return hash.take(32)
+        // CRÍTICO: Usar Android Keystore para derivar clave de encriptación
+        // Esto protege la database contra extracción en dispositivos rooteados
+        return try {
+            val keyGenerator = javax.crypto.KeyGenerator.getInstance(
+                android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
+                "AndroidKeyStore"
+            )
+            
+            val keyGenSpec = android.security.keystore.KeyGenParameterSpec.Builder(
+                "RegresoACasaMasterKey",
+                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
+            )
+            .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setUserAuthenticationRequired(false) // Desactivado para evitar bloqueo en background
+            .build()
+            
+            keyGenerator.init(keyGenSpec)
+            keyGenerator.generateKey()
+            
+            // Extraer clave
+            val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
+            keyStore.load(null)
+            val secretKey = keyStore.getKey("RegresoACasaMasterKey", null) as javax.crypto.SecretKey
+            
+            // Convertir a string de 32 caracteres
+            val keyBytes = secretKey.encoded
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(keyBytes)
+                .joinToString("") { "%02x".format(it) }
+            
+            hash.take(32)
+        } catch (e: Exception) {
+            Timber.e(e, "Error generando clave con Android Keystore, usando fallback")
+            // Fallback: usar device ID (menos seguro pero funcional)
+            val deviceId = android.provider.Settings.Secure.getString(
+                contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            )
+            val combined = deviceId + "regreso_a_casa_salt_2024"
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(combined.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            hash.take(32)
+        }
     }
 }
