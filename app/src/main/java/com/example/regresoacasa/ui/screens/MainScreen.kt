@@ -226,6 +226,61 @@ fun MainScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // FASE 10: Botón de emergencia SIEMPRE visible (CRÍTICO - SEGURIDAD)
+                // Este botón es independiente del estado de Guardian y siempre está disponible
+                var showEmergencyDialog by remember { mutableStateOf(false) }
+                
+                if (showEmergencyDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showEmergencyDialog = false },
+                        title = { 
+                            Text(
+                                "🚨 ALERTA DE EMERGENCIA",
+                                color = Color.Red,
+                                fontWeight = FontWeight.Bold
+                            )
+                        },
+                        text = {
+                            Text("¿Enviar alerta de emergencia a tus contactos de confianza?")
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    showEmergencyDialog = false
+                                    // Usar SafetyCore directamente para enviar alerta
+                                    viewModel.sendEmergencyAlert()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = Color.Red
+                                )
+                            ) {
+                                Text("ENVIAR ALERTA")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showEmergencyDialog = false }) {
+                                Text("Cancelar")
+                            }
+                        }
+                    )
+                }
+                
+                FloatingActionButton(
+                    onClick = { showEmergencyDialog = true },
+                    containerColor = Color.Red,
+                    contentColor = Color.White,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .shadow(8.dp, CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = "Alerta de emergencia",
+                        modifier = Modifier.size(32.dp)
+                    )
+                }
+                
+                Spacer(modifier = Modifier.height(8.dp))
                 // FASE 4: Speed Dial con máximo 3 FABs visibles
                 val speedDialItems = buildList {
                     add(SpeedDialItem(

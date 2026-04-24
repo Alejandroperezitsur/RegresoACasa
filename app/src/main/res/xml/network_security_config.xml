@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- FASE 13: Hardening real - Deshabilitar cleartext traffic -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Permitir solo HTTPS para todas las conexiones -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">api.openrouteservice.org</domain>
+        <domain includeSubdomains="true">nominatim.openstreetmap.org</domain>
+    </domain-config>
+</network-security-config>

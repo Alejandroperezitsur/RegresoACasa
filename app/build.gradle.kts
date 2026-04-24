@@ -95,6 +95,13 @@ dependencies {
     ksp("androidx.room:room-compiler:2.6.1")
     implementation(libs.kotlinx.coroutines.play.services)
     
+    // FASE 13: SQLCipher para encriptar database
+    implementation("net.zetetic:android-database-sqlcipher:4.5.4")
+    implementation("androidx.sqlite:sqlite-ktx:2.4.0")
+    
+    // V3 FASE 8: WorkManager para watchdog independiente
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    
     // Structured logging
     implementation("com.jakewharton.timber:timber:5.0.1")
     
