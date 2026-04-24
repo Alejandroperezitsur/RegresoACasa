@@ -59,10 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.example.regresoacasa.ui.components.MapaView
 import com.example.regresoacasa.ui.components.SafetyModeBanner
 import com.example.regresoacasa.core.safety.state.SafetyMode
-import com.example.regresoacasa.ui.state.ConnectionState
-import com.example.regresoacasa.ui.state.NavigationUiState
-import com.example.regresoacasa.ui.state.SystemFeedbackState
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
 
 /**
  * NavigationScreen v3.0 - FASE 7: Modo Foco UX
@@ -72,13 +69,12 @@ import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationScreen(
-    viewModel: NavigationViewModel,
+    viewModel: NavigationViewModelRefactored,
     onBack: () -> Unit,
     safetyMode: SafetyMode = SafetyMode.FULL
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val navigationState = uiState.navigationState
-    val connectionState = uiState.connectionState
+    val safeReturnState = uiState.safeReturnState
 
     Scaffold(
         topBar = {
@@ -102,84 +98,47 @@ fun NavigationScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // Mapa (contexto principal)
-            val destinoFavorito = navigationState.destination?.let { 
-                com.example.regresoacasa.domain.model.LugarFavorito(
-                    id = it.id,
-                    nombre = it.nombre,
-                    direccion = it.direccion,
-                    latitud = it.latitud,
-                    longitud = it.longitud,
-                    tipo = com.example.regresoacasa.domain.model.LugarFavorito.TipoFavorito.OTRO
-                )
-            }
-            MapaView(
-                ubicacion = navigationState.userLocation,
-                destino = destinoFavorito,
-                ruta = navigationState.route?.puntos,
-                isFollowingUser = navigationState.isFollowingUser,
-                onFollowUserToggle = { viewModel.toggleFollowUser() }
-            )
-
-            // V3: SafetyModeBanner - muestra modo real del sistema
-            SafetyModeBanner(
-                mode = safetyMode,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
-
-            // FASE 7: UI Mínima - SOLO lo esencial
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // BANNER DE ESTADO (Solo si hay problema)
-                if (connectionState !is ConnectionState.Connected || 
-                    uiState.estaCalculandoRuta || 
-                    navigationState.isOffRoute ||
-                    !uiState.hasGpsSignal) {
-                    StatusBanner(
-                        connectionState = connectionState,
-                        isOffRoute = navigationState.isOffRoute,
-                        isRecalculating = uiState.estaCalculandoRuta,
-                        hasGpsSignal = uiState.hasGpsSignal,
-                        gpsAccuracy = uiState.gpsAccuracy,
-                        isSafeReturnActive = uiState.isSafeReturnActive,
-                        systemFeedback = navigationState.systemFeedback
+            when (safeReturnState) {
+                is com.example.regresoacasa.core.SafeReturnState.Navigating -> {
+                    MapaView(
+                        ubicacion = safeReturnState.currentLocation,
+                        destino = null,
+                        ruta = safeReturnState.route.puntos,
+                        isFollowingUser = true,
+                        onFollowUserToggle = { }
+                    )
+                    SafetyModeBanner(mode = safetyMode, modifier = Modifier.align(Alignment.TopCenter))
+                    
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(16.dp)
+                    ) {
+                        TurnByTurnCard(
+                            instruction = "Continúa hacia ${safeReturnState.destination}",
+                            distance = "${safeReturnState.remainingDistance.toInt()} m",
+                            progress = 0.5f,
+                            icon = Icons.Default.Navigation,
+                            isImminent = safeReturnState.remainingDistance < 50
+                        )
+                        SimpleInfoRow(
+                            destination = safeReturnState.destination,
+                            remainingDistance = safeReturnState.remainingDistance,
+                            eta = safeReturnState.eta
+                        )
+                    }
+                }
+                is com.example.regresoacasa.core.SafeReturnState.Arrived -> {
+                    ArrivalCelebration(
+                        destination = safeReturnState.destination,
+                        duration = safeReturnState.duration,
+                        distance = safeReturnState.distance,
+                        onDismiss = onBack
                     )
                 }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // CARD PRINCIPAL - Las 3 cosas esenciales
-                TurnByTurnCard(
-                    instruction = navigationState.currentInstruction?.textoCorto ?: "Continúa recto",
-                    distance = navigationState.currentInstruction?.distanciaFormateada ?: "${navigationState.remainingDistance.toInt()} m",
-                    progress = navigationState.progressToNextTurn,
-                    icon = getInstructionIcon(navigationState.currentInstruction?.tipo?.name ?: "CONTINUA_RECTO"),
-                    isImminent = navigationState.distanceToNextTurn < 50
-                )
-
-                // FASE 7: Info básica simplificada (eliminado Guardian, modo, etc.)
-                SimpleInfoRow(
-                    navigationState = navigationState
-                )
-            }
-
-            // Loading overlay
-            if (uiState.estaCalculandoRuta) {
-                CalculatingOverlay()
-            }
-
-            // Llegada detectada
-            if (navigationState.hasArrived) {
-                ArrivalCelebration(
-                    duration = navigationState.elapsedTime,
-                    distance = navigationState.totalDistance,
-                    onShare = { viewModel.shareArrival() },
-                    onDismiss = { viewModel.dismissArrival() }
-                )
+                else -> {
+                    Text("Estado no navegando", modifier = Modifier.align(Alignment.Center))
+                }
             }
         }
     }
@@ -286,7 +245,8 @@ private fun TurnByTurnCard(
     distance: String,
     progress: Float,
     icon: ImageVector,
-    isImminent: Boolean
+    isImminent: Boolean,
+    modifier: Modifier = Modifier
 ) {
     // FASE 4: Sincronizar color con prioridad háptica
     // CRITICAL (<20m) = azul muy oscuro, HIGH (20-50m) = azul normal, LOW (>50m) = blanco
@@ -445,11 +405,10 @@ private fun SecondaryInfoRow(
  */
 @Composable
 private fun SimpleInfoRow(
-    navigationState: com.example.regresoacasa.domain.model.NavigationState
+    destination: String,
+    remainingDistance: Double,
+    eta: String
 ) {
-    val remainingDuration = navigationState.remainingDuration
-    val remainingDistance = navigationState.remainingDistance
-
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -515,9 +474,9 @@ private fun CalculatingOverlay() {
 
 @Composable
 private fun ArrivalCelebration(
+    destination: String,
     duration: Long,
     distance: Double,
-    onShare: () -> Unit,
     onDismiss: () -> Unit
 ) {
     Box(

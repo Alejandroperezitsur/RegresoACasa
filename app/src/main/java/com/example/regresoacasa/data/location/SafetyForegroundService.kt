@@ -14,10 +14,11 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.regresoacasa.MainActivity
 import com.example.regresoacasa.R
+import com.example.regresoacasa.domain.model.UbicacionUsuario
+import com.example.regresoacasa.core.safety.watchdog.SafetyWatchdog
+import com.example.regresoacasa.data.safety.ReliableAlertDispatcher
 import com.example.regresoacasa.data.local.PreferencesManager
 import com.example.regresoacasa.data.safety.BatteryOptimizationHelper
-import com.example.regresoacasa.data.safety.ReliableAlertDispatcher
-import com.example.regresoacasa.data.safety.SafetyWatchdog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job

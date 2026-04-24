@@ -10,6 +10,7 @@ import com.example.regresoacasa.data.local.entity.SearchHistoryEntity
 import com.example.regresoacasa.data.local.entity.EmergencyContactEntity
 import com.example.regresoacasa.data.local.entity.TripEntity
 import com.example.regresoacasa.data.local.entity.AlertDeliveryEntity
+import com.example.regresoacasa.data.local.entity.EmergencyAlertEntity
 
 val MIGRATION_5_6 = object : Migration(5, 6) {
     override fun migrate(database: SupportSQLiteDatabase) {
@@ -17,9 +18,26 @@ val MIGRATION_5_6 = object : Migration(5, 6) {
     }
 }
 
+val MIGRATION_6_7 = object : Migration(6, 7) {
+    override fun migrate(database: SupportSQLiteDatabase) {
+        database.execSQL("""
+            CREATE TABLE IF NOT EXISTS emergency_alerts (
+                id TEXT PRIMARY KEY NOT NULL,
+                reason TEXT NOT NULL,
+                contacts TEXT NOT NULL,
+                latitude REAL NOT NULL,
+                longitude REAL NOT NULL,
+                timestamp INTEGER NOT NULL,
+                deliveryMethod TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+        """)
+    }
+}
+
 @Database(
-    entities = [LugarFavoritoEntity::class, CachedRouteEntity::class, SearchHistoryEntity::class, EmergencyContactEntity::class, TripEntity::class, AlertDeliveryEntity::class],
-    version = 6,
+    entities = [LugarFavoritoEntity::class, CachedRouteEntity::class, SearchHistoryEntity::class, EmergencyContactEntity::class, TripEntity::class, AlertDeliveryEntity::class, EmergencyAlertEntity::class],
+    version = 7,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -29,4 +47,5 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun emergencyContactDao(): EmergencyContactDao
     abstract fun tripDao(): TripDao
     abstract fun alertDeliveryDao(): AlertDeliveryDao
+    abstract fun emergencyAlertDao(): EmergencyAlertDao
 }

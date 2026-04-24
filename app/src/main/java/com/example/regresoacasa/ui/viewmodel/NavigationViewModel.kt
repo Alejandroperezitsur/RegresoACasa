@@ -19,7 +19,7 @@ import com.example.regresoacasa.data.location.BatteryMode
 import com.example.regresoacasa.data.safety.SafeReturnPreferences
 import com.example.regresoacasa.data.local.PreferencesManager
 import com.example.regresoacasa.data.safety.ReliableAlertDispatcher
-import com.example.regresoacasa.data.safety.SafetyWatchdog
+import com.example.regresoacasa.core.safety.watchdog.SafetyWatchdog
 import com.example.regresoacasa.data.safety.BatteryOptimizationHelper
 import com.example.regresoacasa.data.safety.RiskEvaluator
 import com.example.regresoacasa.data.safety.SuspiciousSilenceDetector
@@ -151,7 +151,6 @@ class NavigationViewModel(
         )
         safetyWatchdog = SafetyWatchdog(
             context,
-            preferencesManager,
             viewModelScope
         )
         riskEvaluator = RiskEvaluator()

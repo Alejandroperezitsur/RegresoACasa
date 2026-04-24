@@ -31,7 +31,9 @@ import com.example.regresoacasa.ui.screens.MainScreen
 import com.example.regresoacasa.ui.screens.NavigationScreen
 import com.example.regresoacasa.ui.screens.SearchScreen
 import com.example.regresoacasa.ui.theme.RegresoACasaTheme
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
+import com.example.regresoacasa.ui.viewmodel.EmergencyViewModel
+import com.example.regresoacasa.ui.viewmodel.SafetyStatusViewModel
 import com.example.regresoacasa.ui.state.Pantalla
 import com.example.regresoacasa.data.location.SafetyForegroundService
 
@@ -44,8 +46,16 @@ class MainActivity : ComponentActivity() {
 
     private val appModule by lazy { AppModule.getInstance(this) }
     
-    private val viewModel: NavigationViewModel by viewModels {
-        NavigationViewModel.Factory(appModule)
+    private val navigationViewModel: NavigationViewModelRefactored by viewModels {
+        NavigationViewModelRefactored.Factory(appModule.safeReturnEngine)
+    }
+    
+    private val emergencyViewModel: EmergencyViewModel by viewModels {
+        EmergencyViewModel.Factory(appModule.safeReturnEngine)
+    }
+    
+    private val safetyStatusViewModel: SafetyStatusViewModel by viewModels {
+        SafetyStatusViewModel.Factory(appModule.safeReturnEngine)
     }
     
     private val criticalAlertReceiver = object : BroadcastReceiver() {
@@ -175,21 +185,22 @@ class MainActivity : ComponentActivity() {
                             }
                             Pantalla.NAVEGACION -> {
                                 NavigationScreen(
-                                    viewModel = viewModel,
+                                    viewModel = navigationViewModel,
                                     onBack = { 
-                                        viewModel.detenerNavegacion()
-                                        viewModel.cambiarPantalla(Pantalla.MAP)
+                                        navigationViewModel.stopNavigation()
                                     }
                                 )
                             }
                             else -> {
                                 MainScreen(
-                                    viewModel = viewModel,
+                                    viewModel = navigationViewModel,
+                                    emergencyViewModel = emergencyViewModel,
+                                    safetyStatusViewModel = safetyStatusViewModel,
                                     onRequestPermission = { requestLocationPermission() },
                                     onRequestSmsPermission = { requestSmsPermission() },
-                                    onIrACasa = { viewModel.iniciarNavegacion() },
-                                    onBuscarDestino = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
-                                    onBuscarCasa = { viewModel.cambiarPantalla(Pantalla.SEARCH) },
+                                    onIrACasa = { /* TODO: Implement with SafeReturnEngine */ },
+                                    onBuscarDestino = { /* TODO: Implement with SafeReturnEngine */ },
+                                    onBuscarCasa = { /* TODO: Implement with SafeReturnEngine */ },
                                     hasLocationPermission = hasLocationPermission(),
                                     hasSmsPermission = hasSmsPermission()
                                 )

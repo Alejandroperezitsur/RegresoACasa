@@ -6,15 +6,11 @@ import android.util.Log
 import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
-import com.example.regresoacasa.core.safety.SafetyCore
-import com.example.regresoacasa.core.safety.SafetyConstants
-import com.example.regresoacasa.core.safety.alert.AlertEngine
-import com.example.regresoacasa.core.safety.location.LocationEngine
-import com.example.regresoacasa.core.safety.persistence.SafetyPersistence
-import com.example.regresoacasa.core.safety.state.SafetyState
-import com.example.regresoacasa.core.safety.watchdog.SafetyWatchdog
+import com.example.regresoacasa.core.SafeReturnEngine
+import com.example.regresoacasa.core.security.SecurityManager
 import com.example.regresoacasa.data.local.AppDatabase
 import com.example.regresoacasa.data.local.MIGRATION_5_6
+import com.example.regresoacasa.data.local.MIGRATION_6_7
 import com.google.firebase.crashlytics.FirebaseCrashlytics
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -49,8 +45,12 @@ class RegresoACasaApp : Application() {
     var isApiKeyValid: Boolean = false
         private set
     
-    // Safety Core - Sistema de seguridad crítico
-    lateinit var safetyCore: SafetyCore
+    // SafeReturnEngine - Single Source of Truth
+    lateinit var safeReturnEngine: SafeReturnEngine
+        private set
+    
+    // SecurityManager - Android Keystore
+    lateinit var securityManager: SecurityManager
         private set
     
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -100,11 +100,19 @@ class RegresoACasaApp : Application() {
             "regreso_a_casa_db"
         )
         .openHelperFactory(supportFactory)
-        .addMigrations(MIGRATION_4_5, MIGRATION_5_6)
+        .addMigrations(MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
         .build()
         
-        // FASE 7: Inicializar Safety Core - CRÍTICO PARA RECUPERACIÓN
-        initializeSafetyCore()
+        // Initialize SecurityManager with Android Keystore
+        securityManager = SecurityManager(applicationContext)
+        
+        // Initialize SafeReturnEngine - Single Source of Truth
+        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "https://your-backend.com" }
+        safeReturnEngine = SafeReturnEngine(
+            context = applicationContext,
+            scope = appScope,
+            backendUrl = backendUrl
+        )
         
         // Verificar si hay un error previo guardado
         val errorFile = File(filesDir, ERROR_FILE)
@@ -146,47 +154,6 @@ class RegresoACasaApp : Application() {
         Timber.d("Aplicación iniciada")
     }
     
-    /**
-     * FASE 7: Inicializa Safety Core y recupera estado si existe
-     * 
-     * CRÍTICO: Si el sistema murió, revive automáticamente.
-     */
-    private fun initializeSafetyCore() {
-        // Inicializar componentes del Safety Core
-        val locationEngine = LocationEngine(applicationContext)
-        val persistence = SafetyPersistence(applicationContext)
-        val watchdog = SafetyWatchdog(applicationContext, appScope)
-        val alertEngine = AlertEngine(applicationContext, appScope, persistence)
-        
-        // Crear Safety Core
-        safetyCore = SafetyCore(
-            context = applicationContext,
-            locationEngine = locationEngine,
-            alertEngine = alertEngine,
-            watchdog = watchdog,
-            persistence = persistence
-        )
-        
-        // Intentar recuperar estado previo
-        appScope.launch {
-            val snapshot = persistence.loadSnapshot()
-            
-            if (snapshot != null && snapshot.state != SafetyState.Idle) {
-                Timber.w("SafetyCore: Restoring from snapshot - state: ${snapshot.state}")
-                
-                try {
-                    safetyCore.restore(snapshot)
-                    Timber.d("SafetyCore: Restore successful")
-                } catch (e: Exception) {
-                    Timber.e(e, "SafetyCore: Restore failed, clearing snapshot")
-                    persistence.clearSnapshot()
-                }
-            } else {
-                Timber.d("SafetyCore: No valid snapshot to restore, starting fresh")
-            }
-        }
-    }
-
     private val MIGRATION_4_5 = object : Migration(4, 5) {
         override fun migrate(database: SupportSQLiteDatabase) {
             database.execSQL("""
@@ -234,56 +201,37 @@ class RegresoACasaApp : Application() {
     }
     
     /**
-     * FASE 13: Genera una clave específica del dispositivo para encriptación
-     * 
-     * NOTA: En producción, esto debería usar Android Keystore para mayor seguridad.
-     * Esta implementación es un placeholder que debe mejorarse.
+     * Genera una clave específica del dispositivo para encriptación con SQLCipher
+     * Usa SecurityManager para obtener clave real de Android Keystore
      */
     private fun getDeviceSpecificKey(): String {
-        // CRÍTICO: Usar Android Keystore para derivar clave de encriptación
-        // Esto protege la database contra extracción en dispositivos rooteados
         return try {
-            val keyGenerator = javax.crypto.KeyGenerator.getInstance(
-                android.security.keystore.KeyProperties.KEY_ALGORITHM_AES,
-                "AndroidKeyStore"
-            )
-            
-            val keyGenSpec = android.security.keystore.KeyGenParameterSpec.Builder(
-                "RegresoACasaMasterKey",
-                android.security.keystore.KeyProperties.PURPOSE_ENCRYPT or android.security.keystore.KeyProperties.PURPOSE_DECRYPT
-            )
-            .setBlockModes(android.security.keystore.KeyProperties.BLOCK_MODE_GCM)
-            .setEncryptionPaddings(android.security.keystore.KeyProperties.ENCRYPTION_PADDING_NONE)
-            .setUserAuthenticationRequired(false) // Desactivado para evitar bloqueo en background
-            .build()
-            
-            keyGenerator.init(keyGenSpec)
-            keyGenerator.generateKey()
-            
-            // Extraer clave
-            val keyStore = java.security.KeyStore.getInstance("AndroidKeyStore")
-            keyStore.load(null)
-            val secretKey = keyStore.getKey("RegresoACasaMasterKey", null) as javax.crypto.SecretKey
-            
-            // Convertir a string de 32 caracteres
-            val keyBytes = secretKey.encoded
+            val securityMgr = SecurityManager(applicationContext)
+            val masterKey = kotlinx.coroutines.runBlocking {
+                securityMgr.getOrCreateMasterKey()
+            }
+            // Convertir clave a string de 32 caracteres para SQLCipher
+            val keyBytes = masterKey.encoded
             val hash = java.security.MessageDigest.getInstance("SHA-256")
                 .digest(keyBytes)
                 .joinToString("") { "%02x".format(it) }
-            
             hash.take(32)
         } catch (e: Exception) {
-            Timber.e(e, "Error generando clave con Android Keystore, usando fallback")
-            // Fallback: usar device ID (menos seguro pero funcional)
-            val deviceId = android.provider.Settings.Secure.getString(
-                contentResolver,
-                android.provider.Settings.Secure.ANDROID_ID
-            )
-            val combined = deviceId + "regreso_a_casa_salt_2024"
-            val hash = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(combined.toByteArray())
-                .joinToString("") { "%02x".format(it) }
-            hash.take(32)
+            Timber.e(e, "Error generando clave con SecurityManager, usando fallback")
+            // Fallback seguro para desarrollo
+            if (BuildConfig.DEBUG) {
+                "regreso_a_casa_dev_key_32chars!!"
+            } else {
+                val deviceId = android.provider.Settings.Secure.getString(
+                    contentResolver,
+                    android.provider.Settings.Secure.ANDROID_ID
+                )
+                val combined = deviceId + "regreso_a_casa_salt_2024"
+                val hash = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(combined.toByteArray())
+                    .joinToString("") { "%02x".format(it) }
+                hash.take(32)
+            }
         }
     }
 }

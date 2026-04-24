@@ -10,10 +10,10 @@ import com.example.regresoacasa.data.local.CachedRouteDao
 import com.example.regresoacasa.data.local.LugarFavoritoDao
 import com.example.regresoacasa.data.local.MapStateManager
 import com.example.regresoacasa.data.local.MIGRATION_5_6
+import com.example.regresoacasa.data.local.MIGRATION_6_7
 import com.example.regresoacasa.data.local.SearchHistoryDao
-import com.example.regresoacasa.core.safety.alert.SmsManagerWrapper
-import com.example.regresoacasa.core.safety.alert.AlertPersistence
-import com.example.regresoacasa.core.safety.persistence.SafetyPersistence
+import com.example.regresoacasa.core.SafeReturnEngine
+import com.example.regresoacasa.core.security.SecurityManager
 import com.example.regresoacasa.data.location.LocationTrackingService
 import com.example.regresoacasa.data.location.RobustLocationFilter
 import com.example.regresoacasa.data.network.NetworkMonitor
@@ -124,17 +124,19 @@ class AppModule private constructor(context: Context) {
         ObtenerDireccionUseCase(mapRepository)
     }
 
-    // SMS Wrapper con delivery confirmation
-    val safetyPersistence: SafetyPersistence by lazy {
-        SafetyPersistence(appContext)
+    // SafeReturnEngine - Single Source of Truth
+    val safeReturnEngine: SafeReturnEngine by lazy {
+        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "https://your-backend.com" }
+        SafeReturnEngine(
+            context = appContext,
+            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob()),
+            backendUrl = backendUrl
+        )
     }
 
-    val smsManagerWrapper: SmsManagerWrapper by lazy {
-        SmsManagerWrapper(
-            context = appContext,
-            scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main + kotlinx.coroutines.Job()),
-            persistence = safetyPersistence
-        )
+    // SecurityManager - Android Keystore
+    val securityManager: SecurityManager by lazy {
+        SecurityManager(appContext)
     }
 
     companion object {

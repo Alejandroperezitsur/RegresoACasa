@@ -68,22 +68,26 @@ import com.example.regresoacasa.ui.components.SpeedDial
 import com.example.regresoacasa.ui.components.SpeedDialItem
 import com.example.regresoacasa.core.safety.state.SafetyMode
 import com.example.regresoacasa.ui.state.UiState
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
+import com.example.regresoacasa.ui.viewmodel.EmergencyViewModel
+import com.example.regresoacasa.ui.viewmodel.SafetyStatusViewModel
 
 @Composable
 fun MainScreen(
-    viewModel: NavigationViewModel,
+    viewModel: NavigationViewModelRefactored,
+    emergencyViewModel: EmergencyViewModel,
+    safetyStatusViewModel: SafetyStatusViewModel,
     onRequestPermission: () -> Unit,
     onRequestSmsPermission: () -> Unit,
     onIrACasa: () -> Unit,
     onBuscarDestino: () -> Unit,
     onBuscarCasa: () -> Unit,
     hasLocationPermission: Boolean,
-    hasSmsPermission: Boolean,
-    safetyMode: SafetyMode = SafetyMode.FULL,
-    safetyScore: Int = 100
+    hasSmsPermission: Boolean
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val emergencyUiState by emergencyViewModel.uiState.collectAsState()
+    val safetyUiState by safetyStatusViewModel.uiState.collectAsState()
     var showSettingsMenu by remember { mutableStateOf(false) }
     var showGuardianDialog by remember { mutableStateOf(false) }
 
@@ -243,47 +247,9 @@ fun MainScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // FASE 10: Botón de emergencia SIEMPRE visible (CRÍTICO - SEGURIDAD)
-                // Este botón es independiente del estado de Guardian y siempre está disponible
-                var showEmergencyDialog by remember { mutableStateOf(false) }
-                
-                if (showEmergencyDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showEmergencyDialog = false },
-                        title = { 
-                            Text(
-                                "🚨 ALERTA DE EMERGENCIA",
-                                color = Color.Red,
-                                fontWeight = FontWeight.Bold
-                            )
-                        },
-                        text = {
-                            Text("¿Enviar alerta de emergencia a tus contactos de confianza?")
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    showEmergencyDialog = false
-                                    // Usar SafetyCore directamente para enviar alerta
-                                    viewModel.sendEmergencyAlert()
-                                },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color.Red
-                                )
-                            ) {
-                                Text("ENVIAR ALERTA")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showEmergencyDialog = false }) {
-                                Text("Cancelar")
-                            }
-                        }
-                    )
-                }
-                
+                // Botón de emergencia SIEMPRE visible - ENVÍO INMEDIATO (SIN CONFIRMACIÓN)
                 FloatingActionButton(
-                    onClick = { showEmergencyDialog = true },
+                    onClick = { emergencyViewModel.triggerEmergency("Emergencia manual") },
                     containerColor = Color.Red,
                     contentColor = Color.White,
                     modifier = Modifier
@@ -295,6 +261,52 @@ fun MainScreen(
                         contentDescription = "Alerta de emergencia",
                         modifier = Modifier.size(32.dp)
                     )
+                }
+                
+                // Emergency status indicator
+                if (emergencyUiState.isActive) {
+                    Card(
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .fillMaxWidth(0.9f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = when (emergencyUiState.deliveryStatus) {
+                                is com.example.regresoacasa.core.EmergencyDeliveryStatus.DeliveredInternet,
+                                is com.example.regresoacasa.core.EmergencyDeliveryStatus.DeliveredSMS -> Color(0xFF4CAF50)
+                                is com.example.regresoacasa.core.EmergencyDeliveryStatus.FailedRetrying -> Color(0xFFFF9800)
+                                is com.example.regresoacasa.core.EmergencyDeliveryStatus.PermanentlyFailed -> Color.Red
+                                else -> Color(0xFF2196F3)
+                            }
+                        )
+                    ) {
+                        Text(
+                            text = emergencyUiState.deliveryMessage ?: "Enviando...",
+                            color = Color.White,
+                            modifier = Modifier.padding(12.dp),
+                            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                
+                // Safety status indicator
+                if (safetyUiState.gpsMessage != null || safetyUiState.connectionMessage != null) {
+                    Card(
+                        modifier = Modifier
+                            .padding(8.dp)
+                            .fillMaxWidth(0.9f),
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color(0xFFFF9800)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            safetyUiState.gpsMessage?.let {
+                                Text(it, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                            }
+                            safetyUiState.connectionMessage?.let {
+                                Text(it, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
                 
                 Spacer(modifier = Modifier.height(8.dp))
