@@ -197,7 +197,7 @@ fun SearchScreen(
                             color = Color.Gray
                         )
                         Text(
-                            text = uiState.lugarSeleccionado!!.direccion,
+                            text = uiState.lugarSeleccionado?.direccion ?: "Dirección pendiente",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.SemiBold
                         )

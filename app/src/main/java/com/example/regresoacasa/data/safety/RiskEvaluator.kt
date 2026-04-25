@@ -207,12 +207,12 @@ class RiskEvaluator {
         )
         
         val weightedSum = 
-            factors.delayRisk * weights["delay"]!! +
-            factors.deviationRisk * weights["deviation"]!! +
-            factors.stopRisk * weights["stop"]!! +
-            factors.signalRisk * weights["signal"]!! +
-            factors.batteryRisk * weights["battery"]!! +
-            factors.silenceRisk * weights["silence"]!!
+            factors.delayRisk * (weights["delay"] ?: 0.25) +
+            factors.deviationRisk * (weights["deviation"] ?: 0.20) +
+            factors.stopRisk * (weights["stop"] ?: 0.20) +
+            factors.signalRisk * (weights["signal"] ?: 0.15) +
+            factors.batteryRisk * (weights["battery"] ?: 0.10) +
+            factors.silenceRisk * (weights["silence"] ?: 0.10)
         
         // Apply non-linear scaling to emphasize high risks
         return when {

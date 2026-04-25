@@ -101,22 +101,27 @@ class MapRepositoryImpl(
                             ApiResult.Error(ApiError.EmptyResponse)
                         }
                         else -> {
-                            val results = response.body()!!.map { result ->
-                                val nombrePrincipal = result.displayName?.substringBefore(",") ?: "Sin nombre"
-                                val direccionCompleta = result.displayName ?: "Dirección no disponible"
-                                
-                                Lugar(
-                                    id = result.placeId?.toString() ?: "",
-                                    nombre = nombrePrincipal,
-                                    direccion = direccionCompleta,
-                                    latitud = result.lat?.toDoubleOrNull() ?: 0.0,
-                                    longitud = result.lon?.toDoubleOrNull() ?: 0.0
-                                )
-                            }
-                            if (results.isEmpty()) {
-                                ApiResult.Error(ApiError.NotFound)
+                            val body = response.body()
+                            if (body == null) {
+                                ApiResult.Error(ApiError.EmptyResponse)
                             } else {
-                                ApiResult.Success(results)
+                                val results = body.map { result ->
+                                    val nombrePrincipal = result.displayName?.substringBefore(",") ?: "Sin nombre"
+                                    val direccionCompleta = result.displayName ?: "Dirección no disponible"
+                                    
+                                    Lugar(
+                                        id = result.placeId?.toString() ?: "",
+                                        nombre = nombrePrincipal,
+                                        direccion = direccionCompleta,
+                                        latitud = result.lat?.toDoubleOrNull() ?: 0.0,
+                                        longitud = result.lon?.toDoubleOrNull() ?: 0.0
+                                    )
+                                }
+                                if (results.isEmpty()) {
+                                    ApiResult.Error(ApiError.NotFound)
+                                } else {
+                                    ApiResult.Success(results)
+                                }
                             }
                         }
                     }
@@ -141,7 +146,7 @@ class MapRepositoryImpl(
         return try {
             val response = nominatimApi.reverseGeocode(lat, lon)
             if (response.isSuccessful && response.body() != null) {
-                val result = response.body()!!
+                val result = response.body() ?: return ApiResult.Error(ApiError.EmptyResponse)
                 ApiResult.Success(
                     Lugar(
                         id = result.placeId?.toString() ?: "",
@@ -278,11 +283,11 @@ class MapRepositoryImpl(
                         response.body() == null -> {
                             ApiResult.Error(ApiError.EmptyResponse)
                         }
-                        response.body()!!.features.isEmpty() -> {
-                            ApiResult.Error(ApiError.NotFound)
-                        }
                         else -> {
-                            val routeResponse = response.body()!!
+                            val routeResponse = response.body()
+                            if (routeResponse == null || routeResponse.features.isEmpty()) {
+                                ApiResult.Error(ApiError.NotFound)
+                            } else {
                             val feature = routeResponse.features[0]
                             val geometry = feature.geometry
                             
@@ -339,6 +344,7 @@ class MapRepositoryImpl(
                             }
                             
                             ApiResult.Success(ruta)
+                            }
                         }
                     }
                 }

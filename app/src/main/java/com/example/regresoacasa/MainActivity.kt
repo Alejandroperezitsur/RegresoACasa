@@ -206,9 +206,15 @@ class MainActivity : ComponentActivity() {
                                     safetyStatusViewModel = safetyStatusViewModel,
                                     onRequestPermission = { requestLocationPermission() },
                                     onRequestSmsPermission = { requestSmsPermission() },
-                                    onIrACasa = { /* TODO: Implement with SafeReturnEngine */ },
-                                    onBuscarDestino = { /* TODO: Implement with SafeReturnEngine */ },
-                                    onBuscarCasa = { /* TODO: Implement with SafeReturnEngine */ },
+                                    onIrACasa = { navigationViewModel.iniciarNavegacion() },
+                                    onBuscarDestino = { 
+                                        navigationViewModel.onSearchQueryChange("")
+                                        navigationViewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                    },
+                                    onBuscarCasa = { 
+                                        navigationViewModel.onSearchQueryChange("")
+                                        navigationViewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                    },
                                     hasLocationPermission = hasLocationPermission(),
                                     hasSmsPermission = hasSmsPermission()
                                 )
