@@ -7,6 +7,7 @@ import com.example.regresoacasa.core.ConnectionStatus
 import com.example.regresoacasa.core.GpsStatus
 import com.example.regresoacasa.core.SafeReturnEngine
 import com.example.regresoacasa.core.SafeReturnState
+import com.example.regresoacasa.core.safety.state.SafetyMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -17,16 +18,27 @@ class SafetyStatusViewModel(
 ) : ViewModel() {
     
     companion object {
-        fun Factory(engine: SafeReturnEngine) = ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return SafetyStatusViewModel(engine) as T
+        fun Factory(engine: SafeReturnEngine): ViewModelProvider.Factory {
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(SafetyStatusViewModel::class.java)) {
+                        return SafetyStatusViewModel(engine) as T
+                    }
+                    throw IllegalArgumentException("Unknown ViewModel class")
+                }
             }
         }
     }
     
     private val _uiState = MutableStateFlow(SafetyStatusUiState())
     val uiState: StateFlow<SafetyStatusUiState> = _uiState.asStateFlow()
+    
+    private val _safetyMode = MutableStateFlow(SafetyMode.FULL)
+    val safetyMode: StateFlow<SafetyMode> = _safetyMode.asStateFlow()
+    
+    private val _safetyScore = MutableStateFlow(100)
+    val safetyScore: StateFlow<Int> = _safetyScore.asStateFlow()
     
     init {
         viewModelScope.launch {
@@ -67,6 +79,11 @@ class SafetyStatusViewModel(
                 )
             }
         }
+        
+        // Safety mode and score will be updated by SafetyCore in production
+        // For now, provide default values
+        _safetyMode.value = SafetyMode.FULL
+        _safetyScore.value = 100
     }
 }
 

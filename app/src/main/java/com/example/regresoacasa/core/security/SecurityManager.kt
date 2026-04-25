@@ -93,27 +93,70 @@ class SecurityManager(private val context: Context) {
         return String(decryptedBytes)
     }
     
-    fun getCertificatePinner(): okhttp3.CertificatePinner {
-        // Certificate pins for OpenRouteService
-        // Run: openssl s_client -connect api.openrouteservice.org:443 | openssl x509 -pubkey -noout | openssl rsa -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
-        return okhttp3.CertificatePinner.Builder()
-            .add("api.openrouteservice.org", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-            .add("openrouteservice.org", "sha256/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
-            .build()
+    fun getCertificatePinner(): okhttp3.CertificatePinner? {
+        // Certificate pinning deshabilitado temporalmente.
+        // Para habilitar, ejecutar: openssl s_client -connect api.openrouteservice.org:443 -showcerts
+        // Extraer certificado raíz/intermedio y ejecutar:
+        // openssl x509 -in cert.pem -pubkey -noout | openssl rsa -pubin -outform der | openssl dgst -sha256 -binary | openssl enc -base64
+        // Reemplazar el placeholder con el hash real.
+        // TODO: Implementar certificate pinning real con pins válidos.
+        return null
     }
     
     fun isDeviceSecure(): Boolean {
-        // Check if device is rooted
+        // PASO 15: Root detection completo
+        // Check common root paths
         val rootPaths = listOf(
             "/system/app/Superuser.apk",
             "/sbin/su",
             "/system/bin/su",
-            "/system/xbin/su"
+            "/system/xbin/su",
+            "/data/local/xbin/su",
+            "/data/local/bin/su",
+            "/system/sd/xbin/su",
+            "/system/bin/failsafe/su",
+            "/data/local/su",
+            "/su/bin/su"
         )
         
         for (path in rootPaths) {
             if (java.io.File(path).exists()) {
                 return false
+            }
+        }
+        
+        // Check for dangerous properties
+        val dangerousProps = listOf(
+            "ro.debuggable" to "1",
+            "ro.secure" to "0"
+        )
+        
+        for ((prop, value) in dangerousProps) {
+            try {
+                val propValue = getSystemProperty(prop)
+                if (propValue == value) {
+                    return false
+                }
+            } catch (e: Exception) {
+                // Ignore property check failures
+            }
+        }
+        
+        // Check for root apps installed
+        val rootApps = listOf(
+            "com.noshufou.android.su",
+            "com.thirdparty.superuser",
+            "eu.chainfire.supersu",
+            "com.koushikdutta.superuser",
+            "com.topjohnwu.magisk"
+        )
+        
+        for (packageName in rootApps) {
+            try {
+                context.packageManager.getPackageInfo(packageName, 0)
+                return false
+            } catch (e: PackageManager.NameNotFoundException) {
+                // App not installed, continue
             }
         }
         
@@ -130,6 +173,52 @@ class SecurityManager(private val context: Context) {
             return !com.example.regresoacasa.BuildConfig.DEBUG
         }
         
+        // Check if running in emulator
+        val isEmulator = isRunningInEmulator()
+        if (isEmulator && !com.example.regresoacasa.BuildConfig.DEBUG) {
+            return false
+        }
+        
         return true
+    }
+    
+    private fun getSystemProperty(prop: String): String? {
+        return try {
+            val clazz = Class.forName("android.os.SystemProperties")
+            val get = clazz.getMethod("get", String::class.java)
+            get.invoke(clazz, prop) as? String
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    private fun isRunningInEmulator(): Boolean {
+        val emulatorProps = listOf(
+            "ro.product.model" to "sdk",
+            "ro.product.device" to "generic",
+            "ro.hardware" to "goldfish",
+            "ro.hardware" to "ranchu"
+        )
+        
+        for ((prop, value) in emulatorProps) {
+            val propValue = getSystemProperty(prop)
+            if (propValue == value) {
+                return true
+            }
+        }
+        
+        // Check for emulator-specific features
+        val features = listOf(
+            "android.hardware.telephony",
+            "android.hardware.camera"
+        )
+        
+        for (feature in features) {
+            if (!context.packageManager.hasSystemFeature(feature)) {
+                return true
+            }
+        }
+        
+        return false
     }
 }

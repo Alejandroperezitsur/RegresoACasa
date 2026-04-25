@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+// Extension property at file level
+private val Context.heartbeatDataStore: DataStore<Preferences> by preferencesDataStore(name = "heartbeat")
+
 /**
  * V3 FASE 3 — HEARTBEAT GLOBAL PERSISTENTE
  * 
@@ -27,7 +30,7 @@ class HeartbeatManager(
     private val scope: CoroutineScope
 ) {
     
-    private val dataStore: DataStore<Preferences> by preferencesDataStore(name = "heartbeat")
+    private val dataStore: DataStore<Preferences> = context.heartbeatDataStore
     
     private val HEARTBEAT_KEY = longPreferencesKey("last_heartbeat")
     private val HEARTBEAT_INTERVAL_KEY = longPreferencesKey("heartbeat_interval")

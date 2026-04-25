@@ -16,10 +16,15 @@ class EmergencyViewModel(
 ) : ViewModel() {
     
     companion object {
-        fun Factory(engine: SafeReturnEngine) = ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                return EmergencyViewModel(engine) as T
+        fun Factory(engine: SafeReturnEngine): ViewModelProvider.Factory {
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                    if (modelClass.isAssignableFrom(EmergencyViewModel::class.java)) {
+                        return EmergencyViewModel(engine) as T
+                    }
+                    throw IllegalArgumentException("Unknown ViewModel class")
+                }
             }
         }
     }

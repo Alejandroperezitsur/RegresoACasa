@@ -1,5 +1,7 @@
 package com.example.regresoacasa.core.safety.state
 
+import com.example.regresoacasa.core.safety.SafetyConstants
+
 /**
  * State Machine de Seguridad
  * 
@@ -133,8 +135,3 @@ data class LocationSnapshot(
     val timestamp: Long,
     val isReliable: Boolean
 )
-
-/**
- * Importar constantes
- */
-import com.example.regresoacasa.core.safety.SafetyConstants

@@ -31,11 +31,12 @@ import com.example.regresoacasa.ui.screens.MainScreen
 import com.example.regresoacasa.ui.screens.NavigationScreen
 import com.example.regresoacasa.ui.screens.SearchScreen
 import com.example.regresoacasa.ui.theme.RegresoACasaTheme
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 import com.example.regresoacasa.ui.viewmodel.EmergencyViewModel
 import com.example.regresoacasa.ui.viewmodel.SafetyStatusViewModel
 import com.example.regresoacasa.ui.state.Pantalla
 import com.example.regresoacasa.data.location.SafetyForegroundService
+import com.example.regresoacasa.data.safety.BatteryOptimizationHelper
 
 class MainActivity : ComponentActivity() {
 
@@ -45,9 +46,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private val appModule by lazy { AppModule.getInstance(this) }
+    private val batteryOptimizationHelper by lazy { BatteryOptimizationHelper(this) }
     
-    private val navigationViewModel: NavigationViewModelRefactored by viewModels {
-        NavigationViewModelRefactored.Factory(appModule.safeReturnEngine)
+    private val navigationViewModel: NavigationViewModel by viewModels {
+        NavigationViewModel.Factory(appModule.safeReturnEngine)
     }
     
     private val emergencyViewModel: EmergencyViewModel by viewModels {
@@ -82,7 +84,7 @@ class MainActivity : ComponentActivity() {
         
         when {
             fineLocation || coarseLocation -> {
-                viewModel.obtenerUbicacionUnica()
+                navigationViewModel.obtenerUbicacionUnica()
                 // FASE 2: Solicitar permisos de background location después de foreground
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     requestBackgroundLocationPermission()
@@ -137,8 +139,12 @@ class MainActivity : ComponentActivity() {
             super.onCreate(savedInstanceState)
             enableEdgeToEdge()
             
-            // Inicializar ViewModel con Context para acceder a servicios del sistema
-            viewModel.initializeWithContext(this)
+            // PASO 14: Verificar optimización de batería
+            if (batteryOptimizationHelper.shouldShowBatteryOptimizationWarning()) {
+                showBatteryOptimizationDialog()
+            }
+            
+            // ViewModel ya está inicializado con SafeReturnEngine
             
             setContent {
                 RegresoACasaTheme {
@@ -146,22 +152,24 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         color = MaterialTheme.colorScheme.background
                     ) {
-                        val uiState = viewModel.uiState.collectAsState().value
+                        val uiState = navigationViewModel.uiState.collectAsState().value
                         
                         when (uiState.pantallaActual) {
                             Pantalla.MAP -> {
                                 MainScreen(
-                                    viewModel = viewModel,
+                                    viewModel = navigationViewModel,
+                                    emergencyViewModel = emergencyViewModel,
+                                    safetyStatusViewModel = safetyStatusViewModel,
                                     onRequestPermission = { requestLocationPermission() },
                                     onRequestSmsPermission = { requestSmsPermission() },
-                                    onIrACasa = { viewModel.iniciarNavegacion() },
+                                    onIrACasa = { navigationViewModel.iniciarNavegacion() },
                                     onBuscarDestino = { 
-                                        viewModel.onSearchQueryChange("")
-                                        viewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                        navigationViewModel.onSearchQueryChange("")
+                                        navigationViewModel.cambiarPantalla(Pantalla.SEARCH) 
                                     },
                                     onBuscarCasa = { 
-                                        viewModel.onSearchQueryChange("")
-                                        viewModel.cambiarPantalla(Pantalla.SEARCH) 
+                                        navigationViewModel.onSearchQueryChange("")
+                                        navigationViewModel.cambiarPantalla(Pantalla.SEARCH) 
                                     },
                                     hasLocationPermission = hasLocationPermission(),
                                     hasSmsPermission = hasSmsPermission()
@@ -169,16 +177,16 @@ class MainActivity : ComponentActivity() {
                             }
                             Pantalla.SEARCH -> {
                                 SearchScreen(
-                                    viewModel = viewModel,
-                                    onBack = { viewModel.cambiarPantalla(Pantalla.MAP) },
+                                    viewModel = navigationViewModel,
+                                    onBack = { navigationViewModel.cambiarPantalla(Pantalla.MAP) },
                                     onGuardarComoCasa = {
                                         uiState.lugarSeleccionado?.let { lugar ->
-                                            viewModel.guardarCasaDesdeLugar(lugar)
+                                            navigationViewModel.guardarCasaDesdeLugar(lugar)
                                         }
                                     },
                                     onIrADestino = {
                                         uiState.lugarSeleccionado?.let { lugar ->
-                                            viewModel.iniciarNavegacionConDestino(lugar)
+                                            navigationViewModel.iniciarNavegacionConDestino(lugar)
                                         }
                                     }
                                 )
@@ -211,7 +219,7 @@ class MainActivity : ComponentActivity() {
             }
 
             if (hasLocationPermission()) {
-                viewModel.obtenerUbicacionUnica()
+                navigationViewModel.obtenerUbicacionUnica()
             }
             // FASE 2: Solicitar permiso de notificaciones en Android 13+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -227,7 +235,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.cargarCasa()
+        navigationViewModel.cargarCasa()
         
         // Register safety broadcast receivers
         registerReceiver(
@@ -414,34 +422,30 @@ class MainActivity : ComponentActivity() {
     }
     
     private fun verificarErrorPrevio() {
-        try {
-            val errorFile = File(filesDir, "crash_error.txt")
-            if (errorFile.exists()) {
-                val errorContent = errorFile.readText()
-                // Mostrar diálogo con el error
-                runOnUiThread {
-                    AlertDialog.Builder(this)
-                        .setTitle("Error detectado")
-                        .setMessage("El error fue:\n\n$errorContent\n\nCopia este texto y repórtalo.")
-                        .setPositiveButton("Aceptar") { dialog, _ ->
-                            // Copiar al portapapeles
-                            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                            val clip = android.content.ClipData.newPlainText("Error", errorContent)
-                            clipboard.setPrimaryClip(clip)
-                            Toast.makeText(this, "Copiado al portapapeles", Toast.LENGTH_SHORT).show()
-                            dialog.dismiss()
-                        }
-                        .setNegativeButton("Cerrar") { dialog, _ ->
-                            dialog.dismiss()
-                        }
-                        .setCancelable(false)
-                        .show()
-                }
-                // Eliminar archivo después de mostrar
-                errorFile.delete()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error verificando error previo", e)
+        val errorFile = File(filesDir, "last_error.txt")
+        if (errorFile.exists()) {
+            val errorText = errorFile.readText()
+            Log.e(TAG, "Error previo detectado: $errorText")
+            errorFile.delete()
         }
+    }
+    
+    private fun showBatteryOptimizationDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Optimización de Batería")
+            .setMessage("Para que RegresoACasa funcione correctamente en segundo plano, necesitas desactivar la optimización de batería para esta app.")
+            .setPositiveButton("Configurar") { _, _ ->
+                val intent = batteryOptimizationHelper.requestIgnoreBatteryOptimizations()
+                if (intent != null) {
+                    try {
+                        startActivity(intent)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error abriendo configuración de batería", e)
+                    }
+                }
+            }
+            .setNegativeButton("Más tarde", null)
+            .setCancelable(false)
+            .show()
     }
 }

@@ -6,7 +6,10 @@ import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.example.regresoacasa.core.EmergencyDeliveryStatus
 import com.example.regresoacasa.domain.model.UbicacionUsuario
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import okhttp3.MediaType.Companion.toMediaType
 import kotlinx.coroutines.withContext
 
 class EmergencyRetryWorker(
@@ -68,7 +71,7 @@ class EmergencyRetryWorker(
                 .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             
-            val json = okhttp3.MediaType.parse("application/json; charset=utf-8")
+            val json = "application/json; charset=utf-8".toMediaType()
             val payload = mapOf(
                 "emergencyId" to emergencyId,
                 "message" to message,
@@ -154,7 +157,7 @@ class EmergencyRetryWorker(
                 deliveryMethod = method,
                 status = if (method == "failed") "failed" else "delivered"
             )
-            kotlinx.coroutines.GlobalScope.launch {
+            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
                 db.emergencyAlertDao().insert(entity)
             }
         } catch (e: Exception) {

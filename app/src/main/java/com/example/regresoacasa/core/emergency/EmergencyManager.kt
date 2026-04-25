@@ -2,6 +2,8 @@ package com.example.regresoacasa.core.emergency
 
 import android.content.Context
 import android.telephony.SmsManager
+import android.util.Log
+import okhttp3.MediaType.Companion.toMediaType
 import androidx.work.Constraints
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
@@ -86,7 +88,7 @@ class EmergencyManager(
                 .readTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             
-            val json = okhttp3.MediaType.parse("application/json; charset=utf-8")
+            val json = "application/json; charset=utf-8".toMediaType()
             val payload = mapOf(
                 "emergencyId" to emergencyId,
                 "message" to message,

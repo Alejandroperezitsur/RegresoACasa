@@ -73,27 +73,6 @@ class LocationEngine(private val context: Context) {
     }
     
     /**
-     * Actualización de ubicación emitida por el motor
-     */
-    sealed class LocationUpdate {
-        data class Reliable(
-            val location: Location,
-            val accuracy: Float,
-            val isMock: Boolean
-        ) : LocationUpdate()
-        
-        data class Degraded(
-            val lastKnownLocation: Location,
-            val reason: String
-        ) : LocationUpdate()
-        
-        data class Error(
-            val error: String,
-            val lastKnownLocation: Location?
-        ) : LocationUpdate()
-    }
-    
-    /**
      * Inicia el tracking de ubicación
      * 
      * @param intervalMillis Intervalo entre actualizaciones (default: 3000ms)
@@ -191,7 +170,7 @@ class LocationEngine(private val context: Context) {
         )
         
         if (spoofingScore.isSpoofed) {
-            _engineState.value = EngineState.Degraded("GPS spoofing detected (score: ${spoofingScore.totalScore})")
+            _engineState.value = EngineState.Degraded("GPS spoofing detected (score: ${spoofingScore.score})")
             degradedCount++
             
             if (degradedCount >= SafetyConstants.SPOOFING_DETECTION_THRESHOLD) {

@@ -42,14 +42,14 @@ class RateLimiter(private val context: Context) {
     )
     
     init {
-        // Cargar historial persistido al inicio
-        loadPersistedHistory()
+        // Cargar historial persistido al inicio - no se puede llamar suspend en init
+        // Se cargará bajo demanda en isAllowed
     }
     
     /**
      * Carga el historial persistido desde DataStore
      */
-    private suspend fun loadPersistedHistory() {
+    private suspend fun loadPersistedHistoryIfNeeded() {
         try {
             val prefs = context.dataStore.data.first()
             limits.keys.forEach { operation ->
@@ -82,6 +82,11 @@ class RateLimiter(private val context: Context) {
      * Verifica si una operación está permitida
      */
     suspend fun isAllowed(operation: String): Boolean {
+        // Cargar historial si es la primera vez
+        if (!requestHistory.containsKey(operation)) {
+            loadPersistedHistoryIfNeeded()
+        }
+        
         val limit = limits[operation] ?: return true
         
         val now = System.currentTimeMillis()

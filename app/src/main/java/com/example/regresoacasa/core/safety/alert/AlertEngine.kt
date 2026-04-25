@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 import android.telephony.SmsManager
 import android.util.Log
+import okhttp3.MediaType.Companion.toMediaType
 import com.example.regresoacasa.core.safety.SafetyConstants
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -193,7 +194,7 @@ class AlertEngine(
                 .readTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
                 .build()
             
-            val json = okhttp3.MediaType.parse("application/json; charset=utf-8")
+            val json = "application/json; charset=utf-8".toMediaType()
             val requestBody = okhttp3.RequestBody.create(json, buildBackendJson(alertId, message, location))
             
             val request = okhttp3.Request.Builder()
@@ -207,8 +208,8 @@ class AlertEngine(
                 Log.d("AlertEngine", "Backend alert sent successfully: $alertId")
                 AlertResult.Success(alertId)
             } else {
-                Log.e("AlertEngine", "Backend alert failed: ${response.code()} for $alertId")
-                AlertResult.Failed(alertId, Exception("Backend error: ${response.code()}"))
+                Log.e("AlertEngine", "Backend alert failed: ${response.code} for $alertId")
+                AlertResult.Failed(alertId, Exception("Backend error: ${response.code}"))
             }
         } catch (e: Exception) {
             Log.e("AlertEngine", "Backend send error for $alertId", e)
@@ -461,7 +462,8 @@ class AlertEngine(
 data class LocationData(
     val latitude: Double,
     val longitude: Double,
-    val accuracy: Float?
+    val accuracy: Float?,
+    val batteryLevel: Int? = null
 )
 
 /**

@@ -23,10 +23,12 @@ import com.example.regresoacasa.core.safety.watchdog.WorkManagerWatchdog
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /**
@@ -50,6 +52,8 @@ class SafetyCore(
     private val persistence: SafetyPersistence
 ) {
     
+    private val scope = CoroutineScope(Dispatchers.Default + Job())
+    
     // V3 Componentes de seguridad avanzada
     private val integrityGuard = IntegrityGuard(context)
     private val heartbeatManager = HeartbeatManager(context, scope)
@@ -57,10 +61,8 @@ class SafetyCore(
     private val spoofingDetector = SpoofingDetector()
     private val energyManager = EnergyManager(context, scope)
     private val safetyScoreCalculator = SafetyScoreCalculator()
-    private val rateLimiter = RateLimiter()
+    private val rateLimiter = RateLimiter(context)
     private val fallbackNavigator = FallbackNavigator()
-    
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
     
     // Estado global del sistema
     private val _state = MutableStateFlow<SafetyState>(SafetyState.Idle)
@@ -195,12 +197,12 @@ class SafetyCore(
      */
     fun forceEmergency(reason: String = "Manual trigger") {
         // V3: Verificar rate limiting
-        if (!rateLimiter.isAllowed("alert")) {
-            Log.w("SafetyCore", "Alert rate limited")
-            return
-        }
-        
         scope.launch {
+            if (!rateLimiter.isAllowed("alert")) {
+                Log.w("SafetyCore", "Alert rate limited")
+                return@launch
+            }
+            
             _state.value = SafetyState.AlertTriggered(
                 reason = reason,
                 timestamp = System.currentTimeMillis()
@@ -359,9 +361,9 @@ class SafetyCore(
         
         locationJob = scope.launch {
             // V3: Obtener intervalo adaptativo según modo de energía
-            val interval = energyManager.getGpsInterval()
+            val config = energyManager.getCurrentConfig()
             
-            locationEngine.start(intervalMillis = interval).collect { update ->
+            locationEngine.start(intervalMillis = config.gpsIntervalMs).collect { update ->
                 when (update) {
                     is LocationUpdate.Reliable -> {
                         lastGpsUpdate = System.currentTimeMillis()
@@ -482,7 +484,7 @@ class SafetyCore(
      */
     private fun startSnapshotLoop() {
         snapshotJob = scope.launch {
-            while (true) {
+            while (isActive) {
                 delay(SafetyConstants.SNAPSHOT_SAVE_INTERVAL)
                 saveSnapshot()
             }

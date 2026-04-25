@@ -6,6 +6,9 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -97,7 +100,7 @@ class EnergyManager(
         
         // Actualizar cada 30 segundos
         scope.launch(Dispatchers.IO) {
-            while (true) {
+            while (isActive) {
                 kotlinx.coroutines.delay(30000)
                 updateBatteryStatus()
             }

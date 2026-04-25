@@ -15,6 +15,9 @@ import androidx.work.WorkerParameters
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
+// Extension property para DataStore - requiere Context
+private val Context.watchdogDataStore: DataStore<Preferences> by preferencesDataStore(name = "watchdog")
+
 /**
  * V3 FASE 8 — AISLAMIENTO DE PROCESOS (WORKMANAGER WATCHDOG)
  * 
@@ -24,7 +27,7 @@ import java.util.concurrent.TimeUnit
 class WorkManagerWatchdog(context: Context, workerParams: WorkerParameters) :
     CoroutineWorker(context, workerParams) {
     
-    private val dataStore: DataStore<Preferences> by preferencesDataStore(name = "watchdog")
+    private val dataStore: DataStore<Preferences> = applicationContext.watchdogDataStore
     private val LAST_WATCHDOG_CHECK_KEY = longPreferencesKey("last_watchdog_check")
     private val HEARTBEAT_KEY = longPreferencesKey("last_heartbeat")
     

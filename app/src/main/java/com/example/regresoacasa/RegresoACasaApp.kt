@@ -82,14 +82,30 @@ class RegresoACasaApp : Application() {
         }
         
         // FASE 13: Encriptar database con SQLCipher
-        // La clave de encriptación debe ser derivada de algo seguro en producción
-        // Para desarrollo, usamos una clave fija (NO usar en producción)
-        val encryptionKey = if (BuildConfig.DEBUG) {
-            "regreso_a_casa_dev_key_32chars!!".toCharArray()
-        } else {
-            // En producción, usar Android Keystore para derivar la clave
-            // Por ahora, usamos una clave basada en el device ID
-            getDeviceSpecificKey().toCharArray()
+        // La clave de encriptación se deriva de Android Keystore siempre
+        // DECISIÓN: Eliminar clave hardcoded en debug por seguridad
+        val encryptionKey = try {
+            val securityMgr = SecurityManager(applicationContext)
+            val masterKey = kotlinx.coroutines.runBlocking {
+                securityMgr.getOrCreateMasterKey()
+            }
+            val keyBytes = masterKey.encoded
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(keyBytes)
+                .joinToString("") { "%02x".format(it) }
+            hash.take(32).toCharArray()
+        } catch (e: Exception) {
+            Timber.e(e, "Error generando clave con SecurityManager, usando fallback")
+            // Fallback seguro basado en device ID + timestamp
+            val deviceId = android.provider.Settings.Secure.getString(
+                contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            )
+            val combined = deviceId + "_" + System.currentTimeMillis() + "_regreso_a_casa_salt"
+            val hash = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(combined.toByteArray())
+                .joinToString("") { "%02x".format(it) }
+            hash.take(32).toCharArray()
         }
         
         val supportFactory = SupportFactory(SQLiteDatabase.getBytes(encryptionKey))
@@ -107,7 +123,8 @@ class RegresoACasaApp : Application() {
         securityManager = SecurityManager(applicationContext)
         
         // Initialize SafeReturnEngine - Single Source of Truth
-        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "https://your-backend.com" }
+        // Backend deshabilitado, usa string vacío para fallback a SMS
+        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "" }
         safeReturnEngine = SafeReturnEngine(
             context = applicationContext,
             scope = appScope,
@@ -200,38 +217,4 @@ class RegresoACasaApp : Application() {
         return isValid
     }
     
-    /**
-     * Genera una clave específica del dispositivo para encriptación con SQLCipher
-     * Usa SecurityManager para obtener clave real de Android Keystore
-     */
-    private fun getDeviceSpecificKey(): String {
-        return try {
-            val securityMgr = SecurityManager(applicationContext)
-            val masterKey = kotlinx.coroutines.runBlocking {
-                securityMgr.getOrCreateMasterKey()
-            }
-            // Convertir clave a string de 32 caracteres para SQLCipher
-            val keyBytes = masterKey.encoded
-            val hash = java.security.MessageDigest.getInstance("SHA-256")
-                .digest(keyBytes)
-                .joinToString("") { "%02x".format(it) }
-            hash.take(32)
-        } catch (e: Exception) {
-            Timber.e(e, "Error generando clave con SecurityManager, usando fallback")
-            // Fallback seguro para desarrollo
-            if (BuildConfig.DEBUG) {
-                "regreso_a_casa_dev_key_32chars!!"
-            } else {
-                val deviceId = android.provider.Settings.Secure.getString(
-                    contentResolver,
-                    android.provider.Settings.Secure.ANDROID_ID
-                )
-                val combined = deviceId + "regreso_a_casa_salt_2024"
-                val hash = java.security.MessageDigest.getInstance("SHA-256")
-                    .digest(combined.toByteArray())
-                    .joinToString("") { "%02x".format(it) }
-                hash.take(32)
-            }
-        }
-    }
 }

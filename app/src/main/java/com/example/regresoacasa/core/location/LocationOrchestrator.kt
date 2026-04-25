@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.sqrt
+import com.example.regresoacasa.core.GpsStatus
 
 class LocationOrchestrator(private val context: Context) {
     
@@ -35,6 +36,7 @@ class LocationOrchestrator(private val context: Context) {
     
     private var locationCallback: LocationCallback? = null
     private var isTracking = false
+    private var restartTrackingCallback: (() -> Unit)? = null
     
     private val locationHistory = mutableListOf<Location>()
     private val maxHistorySize = 20
@@ -47,30 +49,44 @@ class LocationOrchestrator(private val context: Context) {
         
         isTracking = true
         
-        val locationRequest = createAdaptiveRequest()
-        
-        val callback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { location ->
-                    processLocation(location)
-                    trySend(location)
+        fun restartWithNewRequest() {
+            locationCallback?.let { callback ->
+                try {
+                    fusedLocationClient.removeLocationUpdates(callback)
+                } catch (e: Exception) {
+                    // Ignore
                 }
+            }
+            
+            val locationRequest = createAdaptiveRequest()
+            
+            val callback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    result.lastLocation?.let { location ->
+                        processLocation(location)
+                        trySend(location)
+                    }
+                }
+            }
+            
+            locationCallback = callback
+            
+            try {
+                fusedLocationClient.requestLocationUpdates(
+                    locationRequest,
+                    callback,
+                    Looper.getMainLooper()
+                )
+            } catch (e: SecurityException) {
+                close(e)
+            } catch (e: Exception) {
+                close(e)
             }
         }
         
-        locationCallback = callback
+        restartTrackingCallback = { restartWithNewRequest() }
         
-        try {
-            fusedLocationClient.requestLocationUpdates(
-                locationRequest,
-                callback,
-                Looper.getMainLooper()
-            )
-        } catch (e: SecurityException) {
-            close(e)
-        } catch (e: Exception) {
-            close(e)
-        }
+        restartWithNewRequest()
         
         awaitClose {
             stopTracking()
@@ -131,8 +147,8 @@ class LocationOrchestrator(private val context: Context) {
         if (locationHistory.size >= 2) {
             val prevSpeed = calculateSpeed(locationHistory[locationHistory.size - 2])
             if (abs(speedKmh - prevSpeed) > 3f && isTracking) {
-                // Speed changed significantly, would need to restart tracking
-                // For now, we'll just update on next cycle
+                // Speed changed significantly, restart tracking with new interval
+                restartTrackingCallback?.invoke()
             }
         }
     }

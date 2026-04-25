@@ -40,6 +40,9 @@ class SmsManagerWrapper(
     private var timeoutCheckJob: Job? = null
     private var isReceiverRegistered = false
     
+    // Memory leak fix: Clean up old SMS states
+    private val maxSmsHistorySize = 100
+    
     // Callbacks para UI
     var onSmsSent: ((String, String) -> Unit)? = null  // (smsId, phoneNumber)
     var onSmsDelivered: ((String, String) -> Unit)? = null  // (smsId, phoneNumber)
@@ -300,6 +303,14 @@ class SmsManagerWrapper(
     private fun updateSmsStatus(smsId: String, status: SmsStatus) {
         val current = _smsState.value.toMutableMap()
         current[smsId] = status
+        
+        // Memory leak fix: Clean up old entries if map exceeds max size
+        if (current.size > maxSmsHistorySize) {
+            val toRemove = current.size - maxSmsHistorySize
+            val oldestKeys = current.keys.take(toRemove)
+            oldestKeys.forEach { current.remove(it) }
+        }
+        
         _smsState.value = current
     }
     

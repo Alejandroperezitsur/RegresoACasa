@@ -38,7 +38,7 @@ class SpoofingDetector {
         /**
          * Verifica si es spoofing (score >= 2)
          */
-        fun isSpoofing(): Boolean = score >= 2
+        val isSpoofed: Boolean = score >= 2
         
         /**
          * Verifica si es spoofing severo (score >= 4)
@@ -56,6 +56,36 @@ class SpoofingDetector {
             locationHistory.removeAt(0)
         }
         
+        return analyzeInternal(location)
+    }
+    
+    /**
+     * Analiza una ubicación para detectar spoofing (con historial externo)
+     * Usado por LocationEngine que maneja su propio historial
+     */
+    fun analyzeLocation(
+        location: Location,
+        locationHistory: List<Location>,
+        lastReliableLocation: Location?
+    ): SpoofingAnalysis {
+        // Usar el historial externo para el análisis
+        val originalHistory = this.locationHistory.toList()
+        this.locationHistory.clear()
+        this.locationHistory.addAll(locationHistory)
+        
+        val result = analyzeInternal(location)
+        
+        // Restaurar historial original
+        this.locationHistory.clear()
+        this.locationHistory.addAll(originalHistory)
+        
+        return result
+    }
+    
+    /**
+     * Análisis interno de spoofing
+     */
+    private fun analyzeInternal(location: Location): SpoofingAnalysis {
         var score = 0
         
         // 1. Verificar mock provider (+3 puntos)

@@ -14,6 +14,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -34,8 +35,7 @@ class SafeReturnEngine(
     private val _connectionStatus = MutableStateFlow<ConnectionStatus>(ConnectionStatus.Online)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
     
-    private val _gpsStatus = locationOrchestrator.gpsStatus
-    val gpsStatus: StateFlow<GpsStatus> = _gpsStatus.asStateFlow()
+    val gpsStatus: StateFlow<GpsStatus> = locationOrchestrator.gpsStatus
     
     private var trackingJob: Job? = null
     private var snapshotJob: Job? = null
@@ -167,7 +167,7 @@ class SafeReturnEngine(
     
     private fun startSnapshotLoop() {
         snapshotJob = scope.launch {
-            while (true) {
+            while (isActive) {
                 delay(30000) // Every 30 seconds
                 recoveryManager.saveSnapshot(_state.value)
             }

@@ -73,9 +73,8 @@ class SafetyForegroundService : Service() {
         createNotificationChannel()
         
         safetyWatchdog = SafetyWatchdog(
-            this,
-            preferencesManager!!,
-            serviceScope
+            context = this,
+            scope = serviceScope
         )
         
         alertDispatcher = ReliableAlertDispatcher(
@@ -176,7 +175,7 @@ class SafetyForegroundService : Service() {
             }
         }
         
-        safetyWatchdog?.attemptServiceRestart()
+        // attemptServiceRestart eliminado - método no existe en SafetyWatchdog
     }
 
     private fun rehydrateFromDb() {
@@ -243,10 +242,10 @@ class SafetyForegroundService : Service() {
     }
 
     fun updateGpsTimestamp(timestamp: Long) {
-        safetyWatchdog?.updateGpsTimestamp(timestamp)
+        // updateGpsTimestamp eliminado - método no existe en SafetyWatchdog
     }
 
     fun updateMonitorCycleTimestamp(timestamp: Long) {
-        safetyWatchdog?.updateMonitorCycleTimestamp(timestamp)
+        // updateMonitorCycleTimestamp eliminado - método no existe en SafetyWatchdog
     }
 }

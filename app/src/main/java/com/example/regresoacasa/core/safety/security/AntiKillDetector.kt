@@ -12,6 +12,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
+// Extension property at file level
+private val Context.antiKillDataStore: DataStore<Preferences> by preferencesDataStore(name = "anti_kill")
+
 /**
  * V3 FASE 4 — ANTI-KILL DETECTION
  * 
@@ -23,7 +26,7 @@ class AntiKillDetector(
     private val scope: CoroutineScope
 ) {
     
-    private val dataStore: DataStore<Preferences> by preferencesDataStore(name = "anti_kill")
+    private val dataStore: DataStore<Preferences> = context.antiKillDataStore
     
     private val WAS_RUNNING_KEY = booleanPreferencesKey("was_running")
     private val LAST_SHUTDOWN_CLEAN_KEY = booleanPreferencesKey("last_shutdown_clean")

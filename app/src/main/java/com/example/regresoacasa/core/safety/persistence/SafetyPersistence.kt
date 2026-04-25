@@ -20,6 +20,9 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
+// Extension property at file level
+private val Context.safetyPersistenceDataStore: DataStore<Preferences> by preferencesDataStore(name = "safety_state")
+
 /**
  * Persistencia de Seguridad Real
  * 
@@ -31,7 +34,7 @@ import kotlinx.serialization.json.Json
  */
 class SafetyPersistence(private val context: Context) : AlertPersistence {
     
-    private val dataStore: DataStore<Preferences> by preferencesDataStore(name = "safety_state")
+    private val dataStore: DataStore<Preferences> = context.safetyPersistenceDataStore
     
     // Keys para DataStore
     private val STATE_KEY = stringPreferencesKey("safety_state")

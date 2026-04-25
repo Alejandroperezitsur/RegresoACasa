@@ -59,7 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.example.regresoacasa.ui.components.MapaView
 import com.example.regresoacasa.ui.components.SafetyModeBanner
 import com.example.regresoacasa.core.safety.state.SafetyMode
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 
 /**
  * NavigationScreen v3.0 - FASE 7: Modo Foco UX
@@ -69,7 +69,7 @@ import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NavigationScreen(
-    viewModel: NavigationViewModelRefactored,
+    viewModel: NavigationViewModel,
     onBack: () -> Unit,
     safetyMode: SafetyMode = SafetyMode.FULL
 ) {
@@ -129,8 +129,7 @@ fun NavigationScreen(
                     }
                 }
                 is com.example.regresoacasa.core.SafeReturnState.Arrived -> {
-                    ArrivalCelebration(
-                        destination = safeReturnState.destination,
+                    ArrivalOverlay(
                         duration = safeReturnState.duration,
                         distance = safeReturnState.distance,
                         onDismiss = onBack
@@ -146,13 +145,11 @@ fun NavigationScreen(
 
 @Composable
 private fun StatusBanner(
-    connectionState: ConnectionState,
-    isOffRoute: Boolean,
-    isRecalculating: Boolean,
-    hasGpsSignal: Boolean,
-    gpsAccuracy: Float?,
-    isSafeReturnActive: Boolean,
-    systemFeedback: SystemFeedbackState
+    isOffRoute: Boolean = false,
+    isRecalculating: Boolean = false,
+    hasGpsSignal: Boolean = true,
+    gpsAccuracy: Float? = null,
+    isSafeReturnActive: Boolean = false
 ) {
     when {
         isRecalculating -> {
@@ -175,13 +172,6 @@ private fun StatusBanner(
                 icon = Icons.Default.GpsOff,
                 text = "GPS: Precisión baja (~${gpsAccuracy?.toInt() ?: 50}m)",
                 color = Color(0xFFFFA726)
-            )
-        }
-        systemFeedback is SystemFeedbackState.HapticsUnavailable -> {
-            Banner(
-                icon = Icons.Default.Warning,
-                text = "Modo silencioso activo (sin vibración)",
-                color = Color(0xFFFFC107)
             )
         }
         isSafeReturnActive -> {
@@ -424,7 +414,12 @@ private fun SimpleInfoRow(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            val minutos = (remainingDuration / 60).toInt()
+            // remainingDuration eliminado - usar eta string directamente
+            val minutos = try {
+                eta.toIntOrNull() ?: 0
+            } catch (e: Exception) {
+                0
+            }
             val distanciaKm = remainingDistance / 1000
 
             Column {
@@ -473,12 +468,12 @@ private fun CalculatingOverlay() {
 }
 
 @Composable
-private fun ArrivalCelebration(
-    destination: String,
+private fun ArrivalOverlay(
     duration: Long,
     distance: Double,
     onDismiss: () -> Unit
 ) {
+    // duration eliminado - no usado
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -522,8 +517,9 @@ private fun ArrivalCelebration(
 
                 Spacer(modifier = Modifier.height(24.dp))
 
+                // onShare eliminado - funcionalidad no implementada
                 Button(
-                    onClick = onShare,
+                    onClick = onDismiss,
                     colors = ButtonDefaults.buttonColors(
                         containerColor = Color(0xFF4CAF50)
                     ),
@@ -532,7 +528,7 @@ private fun ArrivalCelebration(
                 ) {
                     Icon(Icons.Default.Shield, null, modifier = Modifier.size(20.dp))
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Compartir que llegué bien")
+                    Text("Llegué bien")
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

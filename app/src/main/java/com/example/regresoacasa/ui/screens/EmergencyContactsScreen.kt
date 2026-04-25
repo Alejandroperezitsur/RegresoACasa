@@ -56,7 +56,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import android.util.Log
 import com.example.regresoacasa.data.safety.EmergencyContact
 import com.example.regresoacasa.di.AppModule
 import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
@@ -96,7 +96,7 @@ fun EmergencyContactsScreen(
                     }
                 }
             } catch (e: Exception) {
-                // Handle error
+                Log.e("EmergencyContactsScreen", "Error cargando contactos: ${e.message}", e)
             }
         }
     }
@@ -149,7 +149,7 @@ fun EmergencyContactsScreen(
                                 appModule.database.emergencyContactDao().clearPrimaryContact()
                                 appModule.database.emergencyContactDao().setPrimaryContact(contact.id)
                             } catch (e: Exception) {
-                                // Handle error
+                                Log.e("EmergencyContactsScreen", "Error guardando contacto: ${e.message}", e)
                             }
                         }
                     }
@@ -183,7 +183,7 @@ fun EmergencyContactsScreen(
                             appModule.database.emergencyContactDao().updateContact(entity)
                         }
                     } catch (e: Exception) {
-                        // Handle error
+                        Log.e("EmergencyContactsScreen", "Error guardando contacto: ${e.message}", e)
                     }
                 }
                 showAddDialog = false
@@ -203,7 +203,7 @@ fun EmergencyContactsScreen(
                         val appModule = AppModule.getInstance(context)
                         appModule.database.emergencyContactDao().deleteContactById(contact.id)
                     } catch (e: Exception) {
-                        // Handle error
+                        Log.e("EmergencyContactsScreen", "Error eliminando contacto: ${e.message}", e)
                     }
                 }
                 showDeleteDialog = null

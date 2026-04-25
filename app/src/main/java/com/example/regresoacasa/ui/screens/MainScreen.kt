@@ -68,13 +68,13 @@ import com.example.regresoacasa.ui.components.SpeedDial
 import com.example.regresoacasa.ui.components.SpeedDialItem
 import com.example.regresoacasa.core.safety.state.SafetyMode
 import com.example.regresoacasa.ui.state.UiState
-import com.example.regresoacasa.ui.viewmodel.NavigationViewModelRefactored
+import com.example.regresoacasa.ui.viewmodel.NavigationViewModel
 import com.example.regresoacasa.ui.viewmodel.EmergencyViewModel
 import com.example.regresoacasa.ui.viewmodel.SafetyStatusViewModel
 
 @Composable
 fun MainScreen(
-    viewModel: NavigationViewModelRefactored,
+    viewModel: NavigationViewModel,
     emergencyViewModel: EmergencyViewModel,
     safetyStatusViewModel: SafetyStatusViewModel,
     onRequestPermission: () -> Unit,
@@ -88,8 +88,11 @@ fun MainScreen(
     val uiState by viewModel.uiState.collectAsState()
     val emergencyUiState by emergencyViewModel.uiState.collectAsState()
     val safetyUiState by safetyStatusViewModel.uiState.collectAsState()
+    val safetyMode by safetyStatusViewModel.safetyMode.collectAsState()
+    val safetyScore by safetyStatusViewModel.safetyScore.collectAsState()
     var showSettingsMenu by remember { mutableStateOf(false) }
     var showGuardianDialog by remember { mutableStateOf(false) }
+    var showEmergencyConfirm by remember { mutableStateOf(false) }
 
     if (showGuardianDialog) {
         var phoneNumber by remember { mutableStateOf("") }
@@ -247,9 +250,9 @@ fun MainScreen(
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                // Botón de emergencia SIEMPRE visible - ENVÍO INMEDIATO (SIN CONFIRMACIÓN)
+                // Botón de emergencia SIEMPRE visible - REQUIERE CONFIRMACIÓN
                 FloatingActionButton(
-                    onClick = { emergencyViewModel.triggerEmergency("Emergencia manual") },
+                    onClick = { showEmergencyConfirm = true },
                     containerColor = Color.Red,
                     contentColor = Color.White,
                     modifier = Modifier
@@ -431,6 +434,32 @@ fun MainScreen(
                     viewModel.limpiarError()
                 },
                 modifier = Modifier.align(Alignment.Center)
+            )
+        }
+        
+        // Diálogo de confirmación de emergencia
+        if (showEmergencyConfirm) {
+            AlertDialog(
+                onDismissRequest = { showEmergencyConfirm = false },
+                title = { Text("⚠️ Confirmar Emergencia") },
+                text = { 
+                    Text("¿Estás seguro de enviar alerta de emergencia a tus contactos? Esto enviará SMS inmediatamente.")
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showEmergencyConfirm = false
+                            emergencyViewModel.triggerEmergency("Emergencia manual")
+                        }
+                    ) {
+                        Text("CONFIRMAR", color = Color.Red)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showEmergencyConfirm = false }) {
+                        Text("Cancelar")
+                    }
+                }
             )
         }
     }

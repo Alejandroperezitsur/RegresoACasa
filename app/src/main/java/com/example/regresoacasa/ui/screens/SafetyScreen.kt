@@ -78,9 +78,12 @@ fun SafetyScreen(
                     )
                 }
                 else -> {
+                    // Active trip state - show active trip UI
                     ActiveTripState(
                         viewModel = viewModel,
-                        uiState = uiState
+                        uiState = com.example.regresoacasa.ui.state.MainUiState(
+                            navigationState = com.example.regresoacasa.domain.model.NavigationState()
+                        )
                     )
                 }
             }

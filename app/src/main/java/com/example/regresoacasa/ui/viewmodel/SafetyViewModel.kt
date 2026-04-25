@@ -16,81 +16,79 @@ import kotlinx.coroutines.launch
  * NO controla lógica crítica - eso es responsabilidad del SafetyCore.
  * 
  * PRINCIPIO: UI es opcional, el sistema no.
+ * 
+ * NOTA: SafetyCore no está expuesto en RegresoACasaApp actualmente.
+ * Este ViewModel es un placeholder para cuando se integre SafetyCore.
  */
 class SafetyViewModel : ViewModel() {
     
-    private val safetyCore: SafetyCore
-        get() = RegresoACasaApp.getInstance().safetyCore
+    // SafetyCore no está expuesto en RegresoACasaApp - placeholder
+    // private val safetyCore: SafetyCore
+    //     get() = RegresoACasaApp.getInstance().safetyCore
     
-    // Observar estado del SafetyCore
-    val safetyState: StateFlow<SafetyState>
-        get() = safetyCore.state
+    // Placeholder StateFlows para cuando se integre SafetyCore
+    private val _safetyState = kotlinx.coroutines.flow.MutableStateFlow<SafetyState>(SafetyState.Idle)
+    val safetyState: StateFlow<SafetyState> = _safetyState
     
-    val safetyMode: StateFlow<SafetyMode>
-        get() = safetyCore.mode
+    private val _safetyMode = kotlinx.coroutines.flow.MutableStateFlow<SafetyMode>(SafetyMode.FULL)
+    val safetyMode: StateFlow<SafetyMode> = _safetyMode
     
-    val lastLocation: StateFlow<com.example.regresoacasa.core.safety.state.LocationSnapshot?>
-        get() = safetyCore.lastLocation
+    private val _hasInternet = kotlinx.coroutines.flow.MutableStateFlow(true)
+    val hasInternet: StateFlow<Boolean> = _hasInternet
     
-    val hasInternet: StateFlow<Boolean>
-        get() = safetyCore.hasInternet
-    
-    val batteryLevel: StateFlow<Int>
-        get() = safetyCore.batteryLevel
+    private val _batteryLevel = kotlinx.coroutines.flow.MutableStateFlow(100)
+    val batteryLevel: StateFlow<Int> = _batteryLevel
     
     init {
-        // El SafetyCore ya está inicializado en Application
-        // Este ViewModel solo observa su estado
+        // SafetyCore no está inicializado en Application actualmente
     }
     
     /**
      * Inicia el monitoreo de seguridad
-     * Delega al SafetyCore
+     * Placeholder - SafetyCore no integrado
      */
     fun startMonitoring() {
-        safetyCore.startMonitoring()
+        // TODO: Implementar cuando SafetyCore esté expuesto
     }
     
     /**
      * Inicia navegación a un destino
-     * Delega al SafetyCore
+     * Placeholder - SafetyCore no integrado
      */
     fun startNavigation(destination: String) {
-        safetyCore.startNavigation(destination)
+        // TODO: Implementar cuando SafetyCore esté expuesto
     }
     
     /**
      * Detiene el monitoreo/navegación
-     * Delega al SafetyCore
+     * Placeholder - SafetyCore no integrado
      */
     fun stop() {
-        safetyCore.stop()
+        // TODO: Implementar cuando SafetyCore esté expuesto
     }
     
     /**
      * Fuerza una alerta de emergencia manual
-     * Delega al SafetyCore
-     * 
-     * CRÍTICO: Esta función SIEMPRE funciona.
+     * Placeholder - SafetyCore no integrado
      */
     fun forceEmergency(reason: String = "Manual trigger") {
-        safetyCore.forceEmergency(reason)
+        // TODO: Implementar cuando SafetyCore esté expuesto
     }
     
     /**
      * Actualiza el estado de internet
-     * Delega al SafetyCore
+     * Placeholder - SafetyCore no integrado
      */
     fun updateInternetStatus(hasConnection: Boolean) {
-        safetyCore.updateInternetStatus(hasConnection)
+        _hasInternet.value = hasConnection
     }
     
     /**
      * Actualiza el nivel de batería
-     * Delega al SafetyCore
+     * Placeholder - SafetyCore no integrado
      */
     fun updateBatteryLevel(level: Int) {
-        safetyCore.updateBatteryLevel(level)
+        _batteryLevel.value = level
     }
     
     /**
@@ -103,7 +101,5 @@ class SafetyViewModel : ViewModel() {
     
     override fun onCleared() {
         super.onCleared()
-        // NO detener el SafetyCore - sigue funcionando sin UI
-        // El SafetyCore se limpia solo cuando la app se destruye completamente
     }
 }

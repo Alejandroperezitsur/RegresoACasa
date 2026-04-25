@@ -25,7 +25,7 @@ android {
         if (localPropertiesFile.exists()) {
             localPropertiesFile.inputStream().use { localProperties.load(it) }
         }
-        val orsApiKey = localProperties.getProperty("ORS_API_KEY", "")
+        val orsApiKey = localProperties.getProperty("ORS_API_KEY", "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImNjMzM4MThkMGEyZDQwOTVhMDkxNDNmMDMxYjVmMTg3IiwiaCI6Im11cm11cjY0In0=")
         buildConfigField("String", "ORS_API_KEY", "\"$orsApiKey\"")
         
         // Fallback debug key para desarrollo (no usar en producción)

@@ -125,8 +125,10 @@ class AppModule private constructor(context: Context) {
     }
 
     // SafeReturnEngine - Single Source of Truth
+    // DECISIÓN: Backend no implementado aún. Usando string vacío para indicar que se usará solo SMS fallback.
+    // Para producción, configurar BACKEND_PROXY_URL en local.properties
     val safeReturnEngine: SafeReturnEngine by lazy {
-        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "https://your-backend.com" }
+        val backendUrl = BuildConfig.BACKEND_PROXY_URL.ifBlank { "" }
         SafeReturnEngine(
             context = appContext,
             scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Default + kotlinx.coroutines.SupervisorJob()),

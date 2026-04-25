@@ -202,28 +202,35 @@ class LiveTrackingSession(
     }
 
     /**
-     * Genera link compartible (mock - en producción sería un link real)
+     * Genera link compartible - DECISIÓN: Usar Google Maps directo en lugar de backend falso
+     * Live tracking real requiere backend completo. Por ahora, SMS con coordenadas es suficiente para MVP.
      */
     private fun generateShareableLink(sessionId: String): String {
-        // En producción, esto sería un link real a un servidor
-        // Por ahora usamos un link de Google Maps con el session ID como referencia
-        return "https://regresoseguro.app/track/$sessionId"
+        // Retorna string descriptivo - el link real se genera en sendLocationUpdate con coordenadas
+        return "SMS con ubicación en tiempo real"
     }
 
     /**
      * Envía notificación inicial a contactos
+     * DECISIÓN: Usar coordenadas directas de Google Maps en lugar de link falso
      */
     private fun sendInitialNotification(
         contacts: List<EmergencyContact>,
         link: String,
         etaMinutes: Int
     ) {
+        val state = _sessionState.value
+        val location = state?.currentLocation
+        
         val message = buildString {
             appendLine("🛡️ Regreso Seguro Activado")
             appendLine()
             appendLine("Te estoy compartiendo mi ubicación en tiempo real.")
             appendLine()
-            appendLine("🔗 Seguimiento: $link")
+            if (location != null) {
+                val mapsUrl = "https://www.google.com/maps?q=${location.latitud},${location.longitud}"
+                appendLine("� Mi ubicación: $mapsUrl")
+            }
             appendLine("⏰ ETA: ~$etaMinutes minutos")
             appendLine()
             appendLine("Te aviso cuando llegue 👍")
@@ -236,6 +243,7 @@ class LiveTrackingSession(
 
     /**
      * Envía actualización de ubicación
+     * DECISIÓN: Usar solo coordenadas de Google Maps, eliminar link falso
      */
     private fun sendLocationUpdate(
         contacts: List<EmergencyContact>,
@@ -247,8 +255,7 @@ class LiveTrackingSession(
         val message = buildString {
             appendLine("🛡️ Actualización de Regreso Seguro")
             appendLine()
-            appendLine("📍 Ubicación: $mapsUrl")
-            appendLine("🔗 Seguimiento: ${state.shareableLink}")
+            appendLine("📍 Mi ubicación: $mapsUrl")
             appendLine("⏰ Hora: ${dateFormat.format(Date())}")
             appendLine("📡 Señal: ${state.signalQuality}")
             appendLine("🔋 Batería: ${state.batteryLevel}%")
